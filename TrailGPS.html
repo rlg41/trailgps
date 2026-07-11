@@ -952,9 +952,17 @@ textarea{resize:vertical;min-height:3rem;}
           <div class="heading-num" id="gpsHeading">—</div>
         </div>
       </div>
-      <div class="note" id="devNote">Device orientation comes from the iPad's internal sensor and may be unreliable or unavailable in Safari — treat it with suspicion.</div>
+      <div class="note" id="devNote">Device orientation comes from the iPad's internal magnetometer. It can be accurate once calibrated, but may be thrown off by nearby metal or need calibration — if the heading looks wrong, wave the iPad in a figure-8 a few times. An accuracy figure appears next to the reading when available.</div>
       <div class="note sky">GPS travel heading is derived from movement, so it is meaningful only while you are walking. It becomes unreliable when you stop.</div>
       <button class="btn secondary" id="btnEnableCompass">Enable device compass</button>
+      <div class="card stack" style="margin-top:.6rem">
+        <div class="field-label">Device compass calibration</div>
+        <div class="subtle">If the device heading reads consistently off, adjust here. Point the iPad at a known direction, then set the offset so the reading matches. Try "Flip landscape sign" if landscape and portrait disagree by a large amount.</div>
+        <div class="row">
+          <div><div class="field-label">Offset (°)</div><input type="text" id="compassOffset" inputmode="numeric" value="0"></div>
+          <div style="display:flex;align-items:flex-end"><button class="btn secondary" id="btnFlipScreen">Flip landscape sign</button></div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -1149,18 +1157,36 @@ async function getPhotoURL(wpId){
   photoCache[wpId]=url; return url;
 }
 /* downscale a File/Blob by factor in each dimension; returns Blob */
-function downscale(file,factor,quality=0.82){
+// Scale factor chosen from the image's own larger dimension:
+//   > 3500 px  -> divide by 4
+//   2000-3500  -> divide by 3
+//   < 2000     -> no change (factor 1)
+// This routes each photo correctly regardless of source device or file date.
+function factorForDimension(longEdge){
+  if(longEdge>3500)return 4;
+  if(longEdge>=2000)return 3;
+  return 1;
+}
+function downscale(file,factorOverride,quality=0.82){
   return new Promise((res)=>{
     const img=new Image(); const url=URL.createObjectURL(file);
     img.onload=()=>{
+      const longEdge=Math.max(img.naturalWidth,img.naturalHeight);
+      const factor=factorOverride||factorForDimension(longEdge);
+      if(factor===1){
+        // no scaling needed — return the original file unchanged
+        URL.revokeObjectURL(url);
+        res(file);
+        return;
+      }
       const w=Math.max(1,Math.round(img.naturalWidth/factor));
       const h=Math.max(1,Math.round(img.naturalHeight/factor));
       const c=document.createElement("canvas");c.width=w;c.height=h;
       c.getContext("2d").drawImage(img,0,0,w,h);
       URL.revokeObjectURL(url);
-      c.toBlob(b=>res(b),"image/jpeg",quality);
+      c.toBlob(b=>res(b||file),"image/jpeg",quality);
     };
-    img.onerror=()=>{URL.revokeObjectURL(url);res(null);};
+    img.onerror=()=>{URL.revokeObjectURL(url);res(file);};
     img.src=url;
   });
 }
@@ -1380,7 +1406,9 @@ function renderStatus(){
 }
 
 /* ---------------- compass view ---------------- */
-let devHeading=null,compassOn=false;
+let devHeading=null,compassOn=false,devAccuracy=null;
+let compassOffset=parseFloat(localStorage.getItem("tg_compass_offset")||"0")||0;
+let screenSign=parseFloat(localStorage.getItem("tg_screen_sign")||"1")||1;
 function renderCompass(){
   // GPS travel heading
   if(lastFix&&lastFix.heading!=null&&!isNaN(lastFix.heading)){
@@ -1389,14 +1417,35 @@ function renderCompass(){
   }else{$("#gpsHeading").textContent="—";}
   if(devHeading!=null){
     $("#devNeedle").style.transform="translateX(-50%) rotate("+(-devHeading)+"deg)";
-    $("#devHeading").textContent=Math.round(devHeading)+"°";
+    $("#devHeading").textContent=Math.round(devHeading)+"°"+(devAccuracy!=null&&devAccuracy>0?" (±"+Math.round(devAccuracy)+"°)":"");
   }
+}
+// Correct a raw compass heading for the current screen orientation so the
+// reading reflects the direction the top of the iPad points regardless of how
+// it is rotated. iPads report heading assuming a fixed reference; when the UI
+// is rotated to landscape, we must add the screen angle back.
+function screenAngle(){
+  if(screen.orientation&&typeof screen.orientation.angle==="number")return screen.orientation.angle;
+  if(typeof window.orientation==="number")return (window.orientation<0?360+window.orientation:window.orientation);
+  return 0;
 }
 function onOrient(e){
   let h=null;
-  if(e.webkitCompassHeading!=null)h=e.webkitCompassHeading;      // iOS
-  else if(e.alpha!=null)h=360-e.alpha;
-  if(h!=null){devHeading=h;if(!$("#view-compass").classList.contains("hidden"))renderCompass();}
+  if(e.webkitCompassHeading!=null&&!isNaN(e.webkitCompassHeading)){
+    h=e.webkitCompassHeading;                       // iOS heading (already true-north referenced)
+    if(e.webkitCompassAccuracy!=null)devAccuracy=e.webkitCompassAccuracy;
+  }else if(e.absolute&&e.alpha!=null){
+    h=360-e.alpha;                                  // absolute orientation fallback
+  }else if(e.alpha!=null){
+    h=360-e.alpha;                                  // relative (least reliable)
+  }
+  if(h!=null){
+    // adjust for how the device is being held (portrait/landscape)
+    h=(h+screenAngle()*screenSign+compassOffset)%360;
+    if(h<0)h+=360;
+    devHeading=h;
+    if(!$("#view-compass").classList.contains("hidden"))renderCompass();
+  }
 }
 async function enableCompass(){
   try{
@@ -1404,8 +1453,12 @@ async function enableCompass(){
       const p=await DeviceOrientationEvent.requestPermission();
       if(p!=="granted"){toast("Compass permission denied");return;}
     }
+    // Prefer the absolute-heading event when available; fall back to plain.
+    if("ondeviceorientationabsolute" in window){
+      window.addEventListener("deviceorientationabsolute",onOrient,true);
+    }
     window.addEventListener("deviceorientation",onOrient,true);
-    compassOn=true;toast("Device compass enabled");
+    compassOn=true;toast("Device compass enabled — if off, wave the iPad in a figure-8 to calibrate");
     $("#btnEnableCompass").classList.add("hidden");
   }catch(err){toast("Device compass unavailable");}
 }
@@ -1531,7 +1584,7 @@ async function saveNewWaypoint(fix,name,comment,photoFile){
   const id=uid();
   const wp={id,name,lat:fix.lat,lon:fix.lon,ele:fix.ele,comment,folderId:RECENT,created:Date.now(),hasPhoto:!!photoFile};
   if(photoFile){
-    const field=await downscale(photoFile,4);
+    const field=await downscale(photoFile);
     await idbPut("photos",{id,field,full:photoFile});
   }
   await idbPut("waypoints",wp);
@@ -1623,7 +1676,7 @@ async function runImport(){
     const wp={id,name:g.name,lat:g.lat,lon:g.lon,ele:g.ele,comment:g.comment,folderId:RECENT,created:Date.now()+i,hasPhoto:false};
     const jpg=pendJpg[g.root];
     if(jpg){
-      const field=await downscale(jpg,4);
+      const field=await downscale(jpg);
       await idbPut("photos",{id,field,full:jpg});
       wp.hasPhoto=true;matched++;
     }else{noPhoto++;}
@@ -2050,6 +2103,19 @@ async function boot(){
 
   $("#btnRefresh").onclick=requestRefresh;
   $("#btnEnableCompass").onclick=enableCompass;
+  $("#compassOffset").value=compassOffset;
+  $("#compassOffset").onchange=e=>{
+    const v=parseFloat(e.target.value);
+    compassOffset=isNaN(v)?0:v;
+    localStorage.setItem("tg_compass_offset",String(compassOffset));
+    renderCompass();
+  };
+  $("#btnFlipScreen").onclick=()=>{
+    screenSign=-screenSign;
+    localStorage.setItem("tg_screen_sign",String(screenSign));
+    toast("Landscape sign "+(screenSign>0?"normal":"flipped"));
+    renderCompass();
+  };
 
   $("#btnEditMode").onclick=()=>{editMode=true;selected.clear();$("#editControls").classList.add("hidden");$("#editActions").classList.remove("hidden");$("#selCount").textContent="0";renderList();};
   $("#btnCancelEdit").onclick=()=>{editMode=false;selected.clear();$("#editActions").classList.add("hidden");$("#editControls").classList.remove("hidden");renderList();};
