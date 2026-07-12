@@ -903,6 +903,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <div id="editControls" class="row" style="margin-bottom:.4rem">
         <button class="btn secondary" id="btnEditMode"><svg viewBox="0 0 24 24"><path d="M11 4H4v16h16v-7"/><path d="M18.5 2.5a2.1 2.1 0 013 3L12 15l-4 1 1-4z"/></svg>Select</button>
+        <button class="btn secondary" id="btnUpdateDir"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Update directions</button>
       </div>
       <div id="editActions" class="stack hidden" style="margin-bottom:.4rem">
         <div class="subtle"><span id="selCount">0</span> selected</div>
@@ -935,7 +936,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.11</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.12</div>
     </div>
   </section>
 
@@ -960,11 +961,14 @@ textarea{resize:vertical;min-height:3rem;}
       <button class="btn secondary" id="btnEnableCompass">Enable device compass</button>
       <div class="card stack" style="margin-top:.6rem">
         <div class="field-label">Device compass calibration</div>
-        <div class="subtle">If the device heading reads consistently off, adjust here. Point the iPad at a known direction, then set the offset so the reading matches. Try "Flip landscape sign" if landscape and portrait disagree by a large amount.</div>
-        <div class="row">
-          <div><div class="field-label">Offset (°)</div><input type="text" id="compassOffset" inputmode="numeric" value="0"></div>
-          <div style="display:flex;align-items:flex-end"><button class="btn secondary" id="btnFlipScreen">Flip landscape sign</button></div>
+        <div class="subtle">If the device heading reads consistently off, adjust the offset until it matches a known direction. Use the −/+ buttons for fine steps, or tap the number to type a value.</div>
+        <div class="field-label" style="margin-top:.4rem">Offset (°)</div>
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <button class="btn secondary" id="offMinus" style="width:auto;padding:0 1.1rem;font-size:1.3rem">−</button>
+          <input type="text" id="compassOffset" inputmode="numeric" value="0" style="text-align:center;flex:1">
+          <button class="btn secondary" id="offPlus" style="width:auto;padding:0 1.1rem;font-size:1.3rem">+</button>
         </div>
+        <button class="btn secondary" id="btnFlipScreen" style="margin-top:.5rem">Flip landscape sign</button>
       </div>
     </div>
   </section>
@@ -1031,7 +1035,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div id="folderList"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.11 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.12 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -1432,6 +1436,30 @@ function screenAngle(){
   if(typeof window.orientation==="number")return (window.orientation<0?360+window.orientation:window.orientation);
   return 0;
 }
+// The direction the top of the iPad is currently pointing, in degrees from north.
+// Prefers the device magnetometer (works while stationary); falls back to GPS
+// course when moving and the sensor is unavailable. Returns null if neither.
+function currentHeading(){
+  if(devHeading!=null)return devHeading;
+  if(lastFix&&lastFix.heading!=null&&!isNaN(lastFix.heading))return lastFix.heading;
+  return null;
+}
+// Update just the waypoint-direction arrows in place (no full list rebuild), so
+// they can track device rotation live and cheaply.
+function updateWaypointArrows(){
+  if($("#view-list").classList.contains("hidden"))return;
+  const hdg=currentHeading();
+  const here=lastFix?[lastFix.lat,lastFix.lon]:null;
+  if(here==null)return;
+  document.querySelectorAll("#wpList .wp-row").forEach(row=>{
+    const id=row._wpId; if(!id)return;
+    const w=waypoints.find(x=>x.id===id); if(!w)return;
+    const brg=bearing(here,[w.lat,w.lon]);
+    const rel=hdg==null?brg:((brg-hdg+360)%360);   // relative to where you face
+    const svg=row.querySelector(".wp-arrow");
+    if(svg)svg.style.transform="rotate("+rel+"deg)";
+  });
+}
 function onOrient(e){
   let h=null;
   if(e.webkitCompassHeading!=null&&!isNaN(e.webkitCompassHeading)){
@@ -1448,6 +1476,7 @@ function onOrient(e){
     if(h<0)h+=360;
     devHeading=h;
     if(!$("#view-compass").classList.contains("hidden"))renderCompass();
+    updateWaypointArrows();                          // live-update list arrows
   }
 }
 async function enableCompass(){
@@ -1485,12 +1514,16 @@ function renderList(){
     box.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24"><path d="M12 2a8 8 0 00-8 8c0 5 8 12 8 12s8-7 8-12a8 8 0 00-8-8z"/><circle cx="12" cy="10" r="3"/></svg><div>No waypoints here yet.</div></div>';
     return;
   }
+  const hdg=currentHeading();
   list.forEach(w=>{
-    const el=document.createElement("div");el.className="wp-row";
+    const el=document.createElement("div");el.className="wp-row";el._wpId=w.id;
     const check=editMode?'<div class="wp-check '+(selected.has(w.id)?"on":"")+'">'+(selected.has(w.id)?'<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke="#fff"><path d="M20 6L9 17l-5-5"/></svg>':'')+'</div>':'';
     const distTxt = w._dist==null ? "—" : (w._dist*3.28084>=5280 ? (w._dist*3.28084/5280).toFixed(2)+" mi" : Math.round(w._dist*3.28084)+" ft");
-    const arrow = w._brg==null ? '' :
-      '<svg class="wp-arrow" viewBox="0 0 24 24" style="transform:rotate('+w._brg+'deg)"><path d="M12 3v18M12 3l-5 6M12 3l5 6"/></svg>';
+    let arrow='';
+    if(w._brg!=null){
+      const rel=hdg==null?w._brg:((w._brg-hdg+360)%360);   // relative to facing direction
+      arrow='<svg class="wp-arrow" viewBox="0 0 24 24" style="transform:rotate('+rel+'deg)"><path d="M12 3v18M12 3l-5 6M12 3l5 6"/></svg>';
+    }
     el.innerHTML=check+
       '<div class="wp-name2">'+escapeHtml(w.name)+'</div>'+
       '<div class="wp-comment">'+escapeHtml((w.comment||"").slice(0,44))+'</div>'+
@@ -2121,12 +2154,16 @@ async function boot(){
   $("#btnRefresh").onclick=requestRefresh;
   $("#btnEnableCompass").onclick=enableCompass;
   $("#compassOffset").value=compassOffset;
-  $("#compassOffset").onchange=e=>{
-    const v=parseFloat(e.target.value);
-    compassOffset=isNaN(v)?0:v;
+  function setOffset(v){
+    compassOffset=isNaN(v)?0:((v%360+360)%360);
+    if(compassOffset>180)compassOffset-=360;   // keep in -180..180 for readability
+    $("#compassOffset").value=compassOffset;
     localStorage.setItem("tg_compass_offset",String(compassOffset));
-    renderCompass();
-  };
+    renderCompass();updateWaypointArrows();
+  }
+  $("#compassOffset").onchange=e=>setOffset(parseFloat(e.target.value));
+  $("#offMinus").onclick=()=>setOffset(compassOffset-1);
+  $("#offPlus").onclick=()=>setOffset(compassOffset+1);
   $("#btnFlipScreen").onclick=()=>{
     screenSign=-screenSign;
     localStorage.setItem("tg_screen_sign",String(screenSign));
@@ -2135,6 +2172,13 @@ async function boot(){
   };
 
   $("#btnEditMode").onclick=()=>{editMode=true;selected.clear();$("#editControls").classList.add("hidden");$("#editActions").classList.remove("hidden");$("#selCount").textContent="0";renderList();};
+  $("#btnUpdateDir").onclick=()=>{
+    // ensure compass is running, then refresh the list arrows against current heading
+    if(!compassOn)enableCompass();
+    renderList();
+    updateWaypointArrows();
+    toast(currentHeading()==null?"No heading yet — move or enable compass":"Directions updated");
+  };
   $("#btnCancelEdit").onclick=()=>{editMode=false;selected.clear();$("#editActions").classList.add("hidden");$("#editControls").classList.remove("hidden");renderList();};
   $("#btnMoveSel").onclick=moveSelected;
   $("#btnDeleteSel").onclick=deleteSelected;
