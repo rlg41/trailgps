@@ -694,14 +694,25 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 
 /* ---- top bar ---- */
 #topbar{
-  flex:0 0 auto;display:flex;align-items:center;gap:.5rem;
+  flex:0 0 auto;display:flex;align-items:center;gap:.4rem;flex-wrap:nowrap;
   padding:calc(env(safe-area-inset-top,0) + .5rem) .6rem .5rem;
   background:var(--moss-d);color:#fff;box-shadow:var(--shadow);z-index:600;
 }
-#topbar .title{font-weight:600;letter-spacing:.02em;font-size:1.05rem;margin-right:auto;}
-#topbar .status-dot{width:.6rem;height:.6rem;border-radius:50%;background:#8a97869;transition:background .3s;}
+#topbar .title{font-weight:600;letter-spacing:.02em;font-size:1rem;flex:0 0 auto;}
+#topbar #mapFolderSelect{
+  flex:0 1 34%;min-height:2rem;max-width:180px;border-radius:8px;border:1px solid rgba(255,255,255,.3);
+  background:rgba(255,255,255,.16);padding:0 .5rem;font-size:.82rem;color:#fff;
+  -webkit-appearance:none;appearance:none;font-weight:500;
+}
+#topbar #mapFolderSelect option{color:#000;}
+#topbar #fabAdd{
+  flex:0 0 auto;display:inline-flex;align-items:center;gap:.25rem;min-height:2rem;
+  padding:0 .6rem;border-radius:999px;background:var(--moss);color:#fff;font-weight:600;font-size:.8rem;
+}
+#topbar #fabAdd svg{width:16px;height:16px;stroke:#fff;fill:none;stroke-width:2.2;stroke-linecap:round;}
+#topbar #gpsPill{margin-left:auto;}
 #gpsPill{display:flex;align-items:center;gap:.4rem;background:rgba(255,255,255,.14);
-  padding:.3rem .6rem;border-radius:999px;font-size:.8rem;font-variant-numeric:tabular-nums;}
+  padding:.3rem .6rem;border-radius:999px;font-size:.78rem;font-variant-numeric:tabular-nums;flex:0 0 auto;}
 #gpsPill .dot{width:.55rem;height:.55rem;border-radius:50%;background:#c95;transition:background .4s;}
 #gpsPill.live .dot{background:#7fe0a0;}
 #gpsPill.stale .dot{background:#e0b34f;}
@@ -711,20 +722,22 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .view{position:absolute;inset:0;overflow:auto;-webkit-overflow-scrolling:touch;}
 #map{position:absolute;inset:0;background:#dfe0d5;}
 
-/* ---- bottom nav ---- */
+/* left-edge vertical navigation: circular icons over the image, bottom half */
 #nav{
-  flex:0 0 auto;display:flex;background:var(--panel);border-top:1px solid var(--line);
-  padding-bottom:env(safe-area-inset-bottom,0);z-index:600;
+  position:absolute;left:.5rem;bottom:.6rem;z-index:650;
+  display:flex;flex-direction:column-reverse;gap:.5rem;
 }
 #nav button{
-  flex:1;display:flex;flex-direction:column;align-items:center;gap:.15rem;
-  padding:.45rem .2rem;min-height:var(--tap);color:var(--muted);font-size:.68rem;font-weight:500;
+  width:var(--tap);height:var(--tap);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(255,255,255,.82);backdrop-filter:blur(2px);
+  border:1px solid var(--line);box-shadow:var(--shadow);color:var(--muted);
 }
-#nav button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
-#nav button.active{color:var(--moss);}
-#nav button.active svg{stroke:var(--moss);}
+#nav button svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+#nav button.active{background:var(--moss);border-color:var(--moss);color:#fff;}
+#nav button.active svg{stroke:#fff;}
 
-/* ---- floating map controls ---- */
+/* ---- floating map controls (upper right, below zoom) ---- */
 .map-fab{
   position:absolute;right:.7rem;z-index:500;width:var(--tap);height:var(--tap);
   border-radius:50%;background:var(--panel);box-shadow:var(--shadow);
@@ -733,29 +746,17 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .map-fab svg{width:22px;height:22px;stroke:var(--moss-d);fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;}
 .map-fab.on{background:var(--moss);}
 .map-fab.on svg{stroke:#fff;}
-#fabLocate{bottom:6.5rem;}
-#fabMeasure{bottom:11.5rem;}
-#fabAdd{bottom:1rem;width:auto;padding:0 1.1rem;border-radius:999px;height:3.2rem;
-  background:var(--moss);color:#fff;font-weight:600;gap:.4rem;left:50%;transform:translateX(-50%);right:auto;}
-#fabAdd svg{stroke:#fff;width:20px;height:20px;}
+#fabLocate{top:5rem;}
+#fabMeasure{top:9.5rem;}
 
-/* folder selector on map */
-#folderBar{
-  position:absolute;top:.6rem;left:.6rem;right:.6rem;z-index:500;display:flex;gap:.4rem;align-items:center;
-}
-#folderBar select{
-  flex:1;min-height:var(--tap);border-radius:10px;border:1px solid var(--line);
-  background:var(--panel);box-shadow:var(--shadow);padding:0 .7rem;font-size:.9rem;color:var(--ink);
-  -webkit-appearance:none;appearance:none;font-weight:500;
-}
 #measureReadout{
-  position:absolute;left:.6rem;bottom:1rem;z-index:500;background:var(--panel);
+  position:absolute;left:4rem;bottom:1rem;z-index:500;background:var(--panel);
   box-shadow:var(--shadow);border-radius:10px;padding:.5rem .8rem;font-size:.9rem;font-weight:600;
   border:1px solid var(--line);color:var(--bark);
 }
 
-/* ---- generic panel styling for non-map views ---- */
-.view-inner{padding:1rem 1.1rem calc(2rem + env(safe-area-inset-bottom,0));max-width:640px;margin:0 auto;}
+/* ---- generic panel styling for non-map views (clear left nav strip) ---- */
+.view-inner{padding:1rem 1.1rem calc(2rem + env(safe-area-inset-bottom,0)) 4rem;max-width:640px;margin:0 auto;}
 .view h2{font-size:1.3rem;margin:.2rem 0 1rem;font-weight:650;letter-spacing:-.01em;}
 .view h3{font-size:.95rem;margin:1.4rem 0 .5rem;color:var(--moss-d);font-weight:650;
   text-transform:uppercase;letter-spacing:.06em;}
@@ -814,15 +815,17 @@ textarea{resize:vertical;min-height:3rem;}
 .wp-check.on{background:var(--moss);border-color:var(--moss);}
 .wp-check.on svg{stroke:#fff;width:16px;height:16px;}
 /* compact list rows: name | distance | direction */
-.wp-head{display:flex;align-items:center;gap:.6rem;padding:.25rem 0;border-bottom:1.5px solid var(--line);
+.wp-head{display:flex;align-items:center;gap:.5rem;padding:.25rem 0;border-bottom:1.5px solid var(--line);
   font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;}
-.wp-head span:nth-child(1){flex:1;}
-.wp-head span:nth-child(2){width:64px;text-align:right;}
-.wp-head span:nth-child(3){width:30px;text-align:center;}
-.wp-row{display:flex;align-items:center;gap:.6rem;padding:.28rem 0;border-bottom:1px solid #e4e7dc;font-size:.82rem;}
-.wp-row .wp-name2{flex:1;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.wp-row .wp-dist{width:64px;text-align:right;font-variant-numeric:tabular-nums;color:var(--bark);font-weight:600;}
-.wp-row .wp-brg{width:30px;display:flex;justify-content:center;}
+.wp-head span:nth-child(1){flex:0 0 28%;}
+.wp-head span:nth-child(2){flex:1;}
+.wp-head span:nth-child(3){width:58px;text-align:right;}
+.wp-head span:nth-child(4){width:28px;text-align:center;}
+.wp-row{display:flex;align-items:center;gap:.5rem;padding:.28rem 0;border-bottom:1px solid #e4e7dc;font-size:.82rem;}
+.wp-row .wp-name2{flex:0 0 28%;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wp-row .wp-comment{flex:1;min-width:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wp-row .wp-dist{width:58px;text-align:right;font-variant-numeric:tabular-nums;color:var(--bark);font-weight:600;}
+.wp-row .wp-brg{width:28px;display:flex;justify-content:center;}
 .wp-arrow{width:18px;height:18px;stroke:var(--sky);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;transition:transform .3s;}
 .wp-row .wp-check{width:22px;height:22px;}
 
@@ -868,6 +871,10 @@ textarea{resize:vertical;min-height:3rem;}
 
 <div id="topbar">
   <span class="title">Trail&nbsp;GPS</span>
+  <select id="mapFolderSelect" aria-label="Folder to display"></select>
+  <button id="fabAdd" title="New waypoint" aria-label="Define new waypoint">
+    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>New</span>
+  </button>
   <div id="gpsPill"><span class="dot"></span><span id="gpsPillText">acquiring…</span></div>
 </div>
 
@@ -875,17 +882,11 @@ textarea{resize:vertical;min-height:3rem;}
   <!-- MAP VIEW -->
   <section id="view-map" class="view">
     <div id="map"></div>
-    <div id="folderBar">
-      <select id="mapFolderSelect" aria-label="Folder to display"></select>
-    </div>
     <button id="fabMeasure" class="map-fab" title="Measure distance" aria-label="Measure distance">
       <svg viewBox="0 0 24 24"><path d="M3 17L17 3l4 4L7 21z"/><path d="M8 8l2 2M11 5l2 2M5 11l2 2"/></svg>
     </button>
     <button id="fabLocate" class="map-fab" title="Center on me" aria-label="Center on my location">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
-    </button>
-    <button id="fabAdd" class="map-fab" aria-label="Define new waypoint">
-      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>New waypoint</span>
     </button>
     <div id="measureReadout" class="hidden">Tap points to measure</div>
   </section>
@@ -910,7 +911,7 @@ textarea{resize:vertical;min-height:3rem;}
           <button class="btn ghost" id="btnCancelEdit">Done</button>
         </div>
       </div>
-      <div class="wp-head"><span>Name</span><span>Dist</span><span>Dir</span></div>
+      <div class="wp-head"><span>Name</span><span>Comment</span><span>Dist</span><span>Dir</span></div>
       <div id="wpList"></div>
     </div>
   </section>
@@ -933,6 +934,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.10</div>
     </div>
   </section>
 
@@ -1028,18 +1030,18 @@ textarea{resize:vertical;min-height:3rem;}
         <div id="folderList"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · Version 1 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.10 · runs entirely on this device</div>
     </div>
   </section>
 </div>
 
 <!-- BOTTOM NAV -->
 <nav id="nav">
-  <button data-view="map" class="active"><svg viewBox="0 0 24 24"><path d="M9 20l-5-3V4l5 3 6-3 5 3v13l-5-3-6 3z"/><path d="M9 7v13M15 4v13"/></svg>Map</button>
-  <button data-view="list"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Waypoints</button>
-  <button data-view="status"><svg viewBox="0 0 24 24"><circle cx="12" cy="10" r="3"/><path d="M12 2a8 8 0 00-8 8c0 5 8 12 8 12s8-7 8-12a8 8 0 00-8-8z"/></svg>Status</button>
-  <button data-view="compass"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M16 8l-2 6-6 2 2-6z"/></svg>Compass</button>
-  <button data-view="setup"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.3 1a7 7 0 00-1.7-1l-.3-2.4h-4l-.3 2.4a7 7 0 00-1.7 1l-2.3-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.3-1a7 7 0 001.7 1l.3 2.4h4l.3-2.4a7 7 0 001.7-1l2.3 1 2-3.4-2-1.6a7 7 0 00.1-1z"/></svg>Setup</button>
+  <button data-view="map" class="active" title="Map" aria-label="Map"><svg viewBox="0 0 24 24"><path d="M9 20l-5-3V4l5 3 6-3 5 3v13l-5-3-6 3z"/><path d="M9 7v13M15 4v13"/></svg></button>
+  <button data-view="list" title="Waypoints" aria-label="Waypoints"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
+  <button data-view="status" title="Status" aria-label="Status"><svg viewBox="0 0 24 24"><circle cx="12" cy="10" r="3"/><path d="M12 2a8 8 0 00-8 8c0 5 8 12 8 12s8-7 8-12a8 8 0 00-8-8z"/></svg></button>
+  <button data-view="compass" title="Compass" aria-label="Compass"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M16 8l-2 6-6 2 2-6z"/></svg></button>
+  <button data-view="setup" title="Setup" aria-label="Setup"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.3 1a7 7 0 00-1.7-1l-.3-2.4h-4l-.3 2.4a7 7 0 00-1.7 1l-2.3-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.3-1a7 7 0 001.7 1l.3 2.4h4l.3-2.4a7 7 0 001.7-1l2.3 1 2-3.4-2-1.6a7 7 0 00.1-1z"/></svg></button>
 </nav>
 
 <div id="toast"></div>
@@ -1490,6 +1492,7 @@ function renderList(){
       '<svg class="wp-arrow" viewBox="0 0 24 24" style="transform:rotate('+w._brg+'deg)"><path d="M12 3v18M12 3l-5 6M12 3l5 6"/></svg>';
     el.innerHTML=check+
       '<div class="wp-name2">'+escapeHtml(w.name)+'</div>'+
+      '<div class="wp-comment">'+escapeHtml((w.comment||"").slice(0,48))+'</div>'+
       '<div class="wp-dist">'+distTxt+'</div>'+
       '<div class="wp-brg">'+arrow+'</div>';
     el.onclick=()=>{ if(editMode)toggleSel(w.id); else openWaypoint(w.id); };
@@ -1545,12 +1548,12 @@ function newWaypointFlow(){
     <div class="field-label" style="margin-top:.7rem">Comment (max 64)</div>
     <textarea id="nwComment" maxlength="64">${fmtDateTime(new Date())} </textarea>
     <div class="char-count"><span id="nwCount">0</span>/64</div>
-    <div class="field-label" style="margin-top:.4rem">Photo (optional)</div>
-    <div class="file-drop" id="nwPhotoDrop">Tap to take or choose a photo</div>
     <input type="file" id="nwPhoto" accept="image/*" style="display:none">
     <img id="nwPreview" class="modal-photo hidden">
-    <div class="stack" style="margin-top:1rem">
-      <button class="btn" id="nwSave"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Save waypoint</button>
+    <div id="nwPhotoLabel" class="subtle" style="margin-top:.5rem"></div>
+    <div class="row" style="margin-top:.9rem">
+      <button class="btn secondary" id="nwPhotoBtn"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5L5 21"/></svg>Add Photo</button>
+      <button class="btn" id="nwSave"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Save Waypoint</button>
       <button class="btn ghost" id="nwCancel">Cancel</button>
     </div>`;
   showModal(body,(root)=>{
@@ -1566,12 +1569,12 @@ function newWaypointFlow(){
       const dup=waypoints.some(w=>w.name.toLowerCase()===nameI.value.trim().toLowerCase());
       warn.classList.toggle("hidden",!dup||!nameI.value.trim());
     };
-    root.querySelector("#nwPhotoDrop").onclick=()=>{ try{root.querySelector("#nwPhoto").click();}catch(err){toast("Could not open photo picker");} };
+    root.querySelector("#nwPhotoBtn").onclick=()=>{ try{root.querySelector("#nwPhoto").click();}catch(err){toast("Could not open photo picker");} };
     root.querySelector("#nwPhoto").onchange=e=>{
       photoFile=e.target.files&&e.target.files[0]?e.target.files[0]:null;
       if(photoFile){
         try{const u=URL.createObjectURL(photoFile);const pv=root.querySelector("#nwPreview");pv.src=u;pv.classList.remove("hidden");
-          root.querySelector("#nwPhotoDrop").textContent="Photo attached — tap to change";}catch(err){}
+          root.querySelector("#nwPhotoLabel").textContent="Photo attached — tap Add Photo to change";}catch(err){}
       }
     };
     root.querySelector("#nwCancel").onclick=closeModal;
