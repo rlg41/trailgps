@@ -700,7 +700,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 }
 #topbar .title{font-weight:600;letter-spacing:.02em;font-size:1rem;flex:0 0 auto;}
 #topbar #mapFolderSelect{
-  flex:0 1 34%;min-height:2rem;max-width:180px;border-radius:8px;border:1px solid rgba(255,255,255,.3);
+  flex:0 1 55%;min-height:2rem;max-width:320px;border-radius:8px;border:1px solid rgba(255,255,255,.3);
   background:rgba(255,255,255,.16);padding:0 .5rem;font-size:.82rem;color:#fff;
   -webkit-appearance:none;appearance:none;font-weight:500;
 }
@@ -772,6 +772,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .btn.bark{background:var(--bark);}
 .btn.danger{background:var(--clay);}
 .btn.ghost{background:transparent;color:var(--muted);border:1px solid var(--line);}
+label.btn{position:relative;overflow:hidden;cursor:pointer;}
 .btn:active{filter:brightness(.94);}
 .btn svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;}
 
@@ -817,13 +818,13 @@ textarea{resize:vertical;min-height:3rem;}
 /* compact list rows: name | distance | direction */
 .wp-head{display:flex;align-items:center;gap:.5rem;padding:.25rem 0;border-bottom:1.5px solid var(--line);
   font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;}
-.wp-head span:nth-child(1){flex:0 0 28%;}
+.wp-head span:nth-child(1){flex:0 0 18%;}
 .wp-head span:nth-child(2){flex:1;}
 .wp-head span:nth-child(3){width:58px;text-align:right;}
 .wp-head span:nth-child(4){width:28px;text-align:center;}
 .wp-row{display:flex;align-items:center;gap:.5rem;padding:.28rem 0;border-bottom:1px solid #e4e7dc;font-size:.82rem;}
-.wp-row .wp-name2{flex:0 0 28%;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.wp-row .wp-comment{flex:1;min-width:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wp-row .wp-name2{flex:0 0 18%;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wp-row .wp-comment{flex:1;min-width:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wp-row .wp-dist{width:58px;text-align:right;font-variant-numeric:tabular-nums;color:var(--bark);font-weight:600;}
 .wp-row .wp-brg{width:28px;display:flex;justify-content:center;}
 .wp-arrow{width:18px;height:18px;stroke:var(--sky);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;transition:transform .3s;}
@@ -873,7 +874,7 @@ textarea{resize:vertical;min-height:3rem;}
   <span class="title">Trail&nbsp;GPS</span>
   <select id="mapFolderSelect" aria-label="Folder to display"></select>
   <button id="fabAdd" title="New waypoint" aria-label="Define new waypoint">
-    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>New</span>
+    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>New&nbsp;Waypoint</span>
   </button>
   <div id="gpsPill"><span class="dot"></span><span id="gpsPillText">acquiring…</span></div>
 </div>
@@ -934,7 +935,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.10</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.11</div>
     </div>
   </section>
 
@@ -1030,7 +1031,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div id="folderList"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.10 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.11 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -1492,7 +1493,7 @@ function renderList(){
       '<svg class="wp-arrow" viewBox="0 0 24 24" style="transform:rotate('+w._brg+'deg)"><path d="M12 3v18M12 3l-5 6M12 3l5 6"/></svg>';
     el.innerHTML=check+
       '<div class="wp-name2">'+escapeHtml(w.name)+'</div>'+
-      '<div class="wp-comment">'+escapeHtml((w.comment||"").slice(0,48))+'</div>'+
+      '<div class="wp-comment">'+escapeHtml((w.comment||"").slice(0,44))+'</div>'+
       '<div class="wp-dist">'+distTxt+'</div>'+
       '<div class="wp-brg">'+arrow+'</div>';
     el.onclick=()=>{ if(editMode)toggleSel(w.id); else openWaypoint(w.id); };
@@ -1548,11 +1549,10 @@ function newWaypointFlow(){
     <div class="field-label" style="margin-top:.7rem">Comment (max 64)</div>
     <textarea id="nwComment" maxlength="64">${fmtDateTime(new Date())} </textarea>
     <div class="char-count"><span id="nwCount">0</span>/64</div>
-    <input type="file" id="nwPhoto" accept="image/*" style="display:none">
     <img id="nwPreview" class="modal-photo hidden">
     <div id="nwPhotoLabel" class="subtle" style="margin-top:.5rem"></div>
     <div class="row" style="margin-top:.9rem">
-      <button class="btn secondary" id="nwPhotoBtn"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5L5 21"/></svg>Add Photo</button>
+      <label class="btn secondary" id="nwPhotoBtn" for="nwPhoto"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5L5 21"/></svg>Add Photo<input type="file" id="nwPhoto" accept="image/*" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;"></label>
       <button class="btn" id="nwSave"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Save Waypoint</button>
       <button class="btn ghost" id="nwCancel">Cancel</button>
     </div>`;
@@ -1569,7 +1569,6 @@ function newWaypointFlow(){
       const dup=waypoints.some(w=>w.name.toLowerCase()===nameI.value.trim().toLowerCase());
       warn.classList.toggle("hidden",!dup||!nameI.value.trim());
     };
-    root.querySelector("#nwPhotoBtn").onclick=()=>{ try{root.querySelector("#nwPhoto").click();}catch(err){toast("Could not open photo picker");} };
     root.querySelector("#nwPhoto").onchange=e=>{
       photoFile=e.target.files&&e.target.files[0]?e.target.files[0]:null;
       if(photoFile){
