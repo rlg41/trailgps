@@ -1546,8 +1546,8 @@ function newWaypointFlow(){
     <textarea id="nwComment" maxlength="64">${fmtDateTime(new Date())} </textarea>
     <div class="char-count"><span id="nwCount">0</span>/64</div>
     <div class="field-label" style="margin-top:.4rem">Photo (optional)</div>
-    <div class="file-drop" id="nwPhotoDrop">Tap to take or choose a photo
-      <input type="file" id="nwPhoto" accept="image/*" capture="environment"></div>
+    <div class="file-drop" id="nwPhotoDrop">Tap to take or choose a photo</div>
+    <input type="file" id="nwPhoto" accept="image/*" style="display:none">
     <img id="nwPreview" class="modal-photo hidden">
     <div class="stack" style="margin-top:1rem">
       <button class="btn" id="nwSave"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Save waypoint</button>
@@ -1566,30 +1566,42 @@ function newWaypointFlow(){
       const dup=waypoints.some(w=>w.name.toLowerCase()===nameI.value.trim().toLowerCase());
       warn.classList.toggle("hidden",!dup||!nameI.value.trim());
     };
-    root.querySelector("#nwPhotoDrop").onclick=()=>root.querySelector("#nwPhoto").click();
+    root.querySelector("#nwPhotoDrop").onclick=()=>{ try{root.querySelector("#nwPhoto").click();}catch(err){toast("Could not open photo picker");} };
     root.querySelector("#nwPhoto").onchange=e=>{
-      photoFile=e.target.files[0]||null;
-      if(photoFile){const u=URL.createObjectURL(photoFile);const pv=root.querySelector("#nwPreview");pv.src=u;pv.classList.remove("hidden");}
+      photoFile=e.target.files&&e.target.files[0]?e.target.files[0]:null;
+      if(photoFile){
+        try{const u=URL.createObjectURL(photoFile);const pv=root.querySelector("#nwPreview");pv.src=u;pv.classList.remove("hidden");
+          root.querySelector("#nwPhotoDrop").textContent="Photo attached — tap to change";}catch(err){}
+      }
     };
     root.querySelector("#nwCancel").onclick=closeModal;
     root.querySelector("#nwSave").onclick=async()=>{
       let name=nameI.value.trim()||suggested;
       if(waypoints.some(w=>w.name.toLowerCase()===name.toLowerCase())){warn.classList.remove("hidden");return;}
-      await saveNewWaypoint(fix,name,comment.value.trim(),photoFile);
-      closeModal();
+      const saveBtn=root.querySelector("#nwSave");
+      saveBtn.disabled=true;saveBtn.textContent="Saving…";
+      try{
+        await saveNewWaypoint(fix,name,comment.value.trim(),photoFile);
+        closeModal();
+      }catch(err){
+        saveBtn.disabled=false;saveBtn.textContent="Save waypoint";
+        toast("Save failed: "+(err&&err.message?err.message:"unknown error"));
+      }
     };
   });
 }
 async function saveNewWaypoint(fix,name,comment,photoFile){
   const id=uid();
-  const wp={id,name,lat:fix.lat,lon:fix.lon,ele:fix.ele,comment,folderId:RECENT,created:Date.now(),hasPhoto:!!photoFile};
+  const wp={id,name,lat:fix.lat,lon:fix.lon,ele:(fix.ele==null?null:fix.ele),comment,folderId:RECENT,created:Date.now(),hasPhoto:!!photoFile};
   if(photoFile){
-    const field=await downscale(photoFile);
+    let field=photoFile;
+    try{ field=await downscale(photoFile); }catch(e){ field=photoFile; }   // fall back to original on any scaling error
     await idbPut("photos",{id,field,full:photoFile});
   }
   await idbPut("waypoints",wp);
   waypoints.push(wp);
   refreshPins();
+  populateFolderSelects();
   toast("Waypoint saved to Recently Added");
   if(!$("#view-list").classList.contains("hidden"))renderList();
 }
@@ -2071,6 +2083,9 @@ function switchView(name){
 
 /* ---------------- wire up ---------------- */
 async function boot(){
+  // Surface uncaught errors as a toast rather than letting them silently break the UI.
+  window.addEventListener("error",ev=>{ try{toast("Error: "+(ev.message||"unknown"));}catch(e){} });
+  window.addEventListener("unhandledrejection",ev=>{ try{toast("Error: "+((ev.reason&&ev.reason.message)||"operation failed"));}catch(e){} });
   await openDB();
   await ensureRecent();
   await loadState();
