@@ -930,13 +930,17 @@ textarea{resize:vertical;min-height:3rem;}
         <div class="card"><div class="field-label">Elevation</div><div class="big-num" id="stEle">—</div><div class="subtle">estimate</div></div>
         <div class="card"><div class="field-label">Est. error</div><div class="big-num" id="stErr">—</div><div class="subtle">horizontal</div></div>
       </div>
+      <div class="row">
+        <div class="card"><div class="field-label">Velocity</div><div class="big-num" id="stVel">—</div><div class="subtle">over ground</div></div>
+        <div class="card"><div class="field-label">Heading</div><div class="big-num" id="stHdg">—</div><div class="subtle">course</div></div>
+      </div>
       <div class="card">
         <div class="kv"><span class="k">Fix time</span><span class="v" id="stTime">—</span></div>
         <div class="kv" style="border:none"><span class="k">Updates</span><span class="v" id="stLive">—</span></div>
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.12</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.13</div>
     </div>
   </section>
 
@@ -958,7 +962,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <div class="note" id="devNote">Device orientation comes from the iPad's internal magnetometer. It can be accurate once calibrated, but may be thrown off by nearby metal or need calibration — if the heading looks wrong, wave the iPad in a figure-8 a few times. An accuracy figure appears next to the reading when available.</div>
       <div class="note sky">GPS travel heading is derived from movement, so it is meaningful only while you are walking. It becomes unreliable when you stop.</div>
-      <button class="btn secondary" id="btnEnableCompass">Enable device compass</button>
+      <button class="btn secondary" id="btnEnableCompass">Tap once to allow compass access</button>
       <div class="card stack" style="margin-top:.6rem">
         <div class="field-label">Device compass calibration</div>
         <div class="subtle">If the device heading reads consistently off, adjust the offset until it matches a known direction. Use the −/+ buttons for fine steps, or tap the number to type a value.</div>
@@ -1035,7 +1039,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div id="folderList"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.12 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.13 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -1164,14 +1168,17 @@ async function getPhotoURL(wpId){
   photoCache[wpId]=url; return url;
 }
 /* downscale a File/Blob by factor in each dimension; returns Blob */
-// Scale factor chosen from the image's own larger dimension:
-//   > 3500 px  -> divide by 4
-//   2000-3500  -> divide by 3
-//   < 2000     -> no change (factor 1)
-// This routes each photo correctly regardless of source device or file date.
+// Scale factor chosen from the image's own larger dimension. Bands are set so
+// each known source lands near ~1000 px on the long edge:
+//   >= 3500 px  -> divide by 4  (native full-res ~4032)
+//   2500-3499   -> divide by 3  (mid-res ~3264)
+//   1500-2499   -> divide by 2  (Safari web-captured ~2016)
+//   < 1500      -> no change    (already-small originals)
+// Bands include the lower bound and exclude the upper (e.g. 2500 -> ÷3, 3500 -> ÷4).
 function factorForDimension(longEdge){
-  if(longEdge>3500)return 4;
-  if(longEdge>=2000)return 3;
+  if(longEdge>=3500)return 4;
+  if(longEdge>=2500)return 3;
+  if(longEdge>=1500)return 2;
   return 1;
 }
 function downscale(file,factorOverride,quality=0.82){
@@ -1402,11 +1409,18 @@ function requestRefresh(){
 
 /* ---------------- status view ---------------- */
 function renderStatus(){
-  if(!lastFix){["#stLat","#stLon","#stEle","#stErr","#stTime","#stLive"].forEach(s=>$(s).textContent="—");return;}
+  if(!lastFix){["#stLat","#stLon","#stEle","#stErr","#stTime","#stLive","#stVel","#stHdg"].forEach(s=>$(s).textContent="—");return;}
   $("#stLat").textContent=fmtCoord(lastFix.lat,"N","S");
   $("#stLon").textContent=fmtCoord(lastFix.lon,"E","W");
   $("#stEle").textContent=lastFix.ele!=null?Math.round(metersToFeet(lastFix.ele))+" ft":"n/a";
   $("#stErr").textContent=lastFix.acc!=null?"±"+Math.round(metersToFeet(lastFix.acc))+" ft":"n/a";
+  // velocity: speed is in metres/second; convert to mph. null or negative => stationary/unknown.
+  if(lastFix.speed!=null&&!isNaN(lastFix.speed)&&lastFix.speed>=0){
+    $("#stVel").textContent=(lastFix.speed*2.23694).toFixed(1)+" mph";
+  }else{$("#stVel").textContent="—";}
+  if(lastFix.heading!=null&&!isNaN(lastFix.heading)){
+    $("#stHdg").textContent=Math.round(lastFix.heading)+"°";
+  }else{$("#stHdg").textContent="—";}
   $("#stTime").textContent=fmtTime(lastFix.time);
   const age=(Date.now()-lastFix.time.getTime())/1000;
   $("#stLive").textContent=age<6?"live":Math.round(age)+"s ago";
@@ -1479,18 +1493,37 @@ function onOrient(e){
     updateWaypointArrows();                          // live-update list arrows
   }
 }
+function startCompassListeners(){
+  if(compassOn)return;
+  if("ondeviceorientationabsolute" in window){
+    window.addEventListener("deviceorientationabsolute",onOrient,true);
+  }
+  window.addEventListener("deviceorientation",onOrient,true);
+  compassOn=true;
+}
+// Called when the Compass page opens. On iOS the permission prompt must come
+// from a user tap, so if permission is required we can't auto-grant it — we show
+// the Enable button. Where no explicit permission is needed, we start silently.
+function autoEnableCompass(){
+  if(compassOn){$("#btnEnableCompass").classList.add("hidden");return;}
+  const needsPermission = typeof DeviceOrientationEvent!=="undefined" && DeviceOrientationEvent.requestPermission;
+  if(needsPermission){
+    // Can't request without a tap — reveal the button for the user to grant once.
+    $("#btnEnableCompass").classList.remove("hidden");
+  }else{
+    // No permission gate on this platform — just start.
+    startCompassListeners();
+    $("#btnEnableCompass").classList.add("hidden");
+  }
+}
 async function enableCompass(){
   try{
     if(typeof DeviceOrientationEvent!=="undefined"&&DeviceOrientationEvent.requestPermission){
       const p=await DeviceOrientationEvent.requestPermission();
       if(p!=="granted"){toast("Compass permission denied");return;}
     }
-    // Prefer the absolute-heading event when available; fall back to plain.
-    if("ondeviceorientationabsolute" in window){
-      window.addEventListener("deviceorientationabsolute",onOrient,true);
-    }
-    window.addEventListener("deviceorientation",onOrient,true);
-    compassOn=true;toast("Device compass enabled — if off, wave the iPad in a figure-8 to calibrate");
+    startCompassListeners();
+    toast("Device compass enabled — if off, wave the iPad in a figure-8 to calibrate");
     $("#btnEnableCompass").classList.add("hidden");
   }catch(err){toast("Device compass unavailable");}
 }
@@ -2112,7 +2145,7 @@ function switchView(name){
   if(name==="map"&&map)setTimeout(()=>map.invalidateSize(),80);
   if(name==="list")renderList();
   if(name==="status")renderStatus();
-  if(name==="compass")renderCompass();
+  if(name==="compass"){autoEnableCompass();renderCompass();}
   if(name==="setup"){renderFolderList();}
 }
 
