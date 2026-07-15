@@ -908,6 +908,10 @@ textarea{resize:vertical;min-height:3rem;}
       <div id="editActions" class="stack hidden" style="margin-bottom:.4rem">
         <div class="subtle"><span id="selCount">0</span> selected</div>
         <div class="row">
+          <button class="btn secondary" id="btnSelectAll">Select all</button>
+          <button class="btn secondary" id="btnSelectNone">Select none</button>
+        </div>
+        <div class="row">
           <button class="btn bark" id="btnMoveSel"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg>Move</button>
           <button class="btn danger" id="btnDeleteSel"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Delete</button>
           <button class="btn ghost" id="btnCancelEdit">Done</button>
@@ -940,7 +944,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.13</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.14</div>
     </div>
   </section>
 
@@ -1039,7 +1043,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div id="folderList"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.13 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.14 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -1385,6 +1389,7 @@ function onPos(p){
   if(!$("#view-status").classList.contains("hidden"))renderStatus();
   if(!$("#view-compass").classList.contains("hidden"))renderCompass();
   if(!$("#view-list").classList.contains("hidden"))renderList();
+  nwOnFix();                               // accumulate into new-waypoint average if open
   clearTimeout(onPos._stale);
   onPos._stale=setTimeout(()=>updateGpsPill(false),8000);
 }
@@ -1575,22 +1580,77 @@ async function openWaypoint(id){
   const url=w.hasPhoto?await getPhotoURL(id):null;
   const body=`
     <div class="grip"></div>
-    <h3>${escapeHtml(w.name)}</h3>
-    ${url?`<img class="modal-photo" src="${url}">`:'<div class="note">No photo attached.</div>'}
+    <div class="field-label">Name</div>
+    <input type="text" id="wpName" value="${escapeHtml(w.name)}">
+    <div class="warn-text hidden" id="wpNameWarn">That name is already used by another waypoint.</div>
+    <img id="wpPhoto" class="modal-photo ${url?'':'hidden'}" ${url?`src="${url}"`:''}>
+    <div class="subtle ${url?'hidden':''}" id="wpNoPhoto">No photo attached.</div>
     <div class="kv"><span class="k">Latitude</span><span class="v">${fmtCoord(w.lat,"N","S")}</span></div>
     <div class="kv"><span class="k">Longitude</span><span class="v">${fmtCoord(w.lon,"E","W")}</span></div>
     <div class="kv"><span class="k">Elevation</span><span class="v">${w.ele!=null?Math.round(metersToFeet(w.ele))+" ft":"—"}</span></div>
     <div class="kv"><span class="k">Folder</span><span class="v">${escapeHtml(folderName(w.folderId))}</span></div>
-    <div class="field-label" style="margin-top:.7rem">Comment</div>
-    <div class="subtle">${escapeHtml(w.comment||"—")}</div>
-    <div class="stack" style="margin-top:1rem">
-      <button class="btn" data-act="export">Export this waypoint</button>
+    <div class="field-label" style="margin-top:.7rem">Comment (max 64)</div>
+    <textarea id="wpComment" maxlength="64">${escapeHtml(w.comment||"")}</textarea>
+    <div class="char-count"><span id="wpCount">0</span>/64</div>
+    <div class="row" style="margin-top:.7rem">
+      <label class="btn secondary" id="wpPhotoBtn" for="wpPhotoInput"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5L5 21"/></svg><span id="wpPhotoBtnText">${url?'Replace Photo':'Add Photo'}</span><input type="file" id="wpPhotoInput" accept="image/*" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;"></label>
+      <button class="btn" data-act="save"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Save Changes</button>
+    </div>
+    <div class="stack" style="margin-top:.7rem">
+      <button class="btn secondary" data-act="export">Export this waypoint</button>
       <div class="row">
         <button class="btn secondary" data-act="center">Show on map</button>
         <button class="btn ghost" data-act="close">Close</button>
       </div>
     </div>`;
   showModal(body,(root)=>{
+    let newPhoto=null;
+    const nameI=root.querySelector("#wpName");
+    const commentI=root.querySelector("#wpComment");
+    const warn=root.querySelector("#wpNameWarn");
+    const count=root.querySelector("#wpCount");
+    const updCount=()=>count.textContent=commentI.value.length;
+    updCount();commentI.oninput=updCount;
+    nameI.oninput=()=>warn.classList.add("hidden");
+    root.querySelector("#wpPhotoInput").onchange=e=>{
+      newPhoto=e.target.files&&e.target.files[0]?e.target.files[0]:null;
+      if(newPhoto){
+        try{
+          const u=URL.createObjectURL(newPhoto);
+          const pv=root.querySelector("#wpPhoto");
+          pv.src=u;pv.classList.remove("hidden");
+          root.querySelector("#wpNoPhoto").classList.add("hidden");
+          root.querySelector("#wpPhotoBtnText").textContent="Replace Photo";
+        }catch(err){}
+        toast("Photo will replace the existing one when you save");
+      }
+    };
+    root.querySelector('[data-act="save"]').onclick=async()=>{
+      const nm=nameI.value.trim();
+      if(!nm){toast("Name cannot be empty");return;}
+      // duplicate check excludes this waypoint itself
+      if(waypoints.some(x=>x.id!==w.id&&x.name.toLowerCase()===nm.toLowerCase())){warn.classList.remove("hidden");return;}
+      const btn=root.querySelector('[data-act="save"]');
+      btn.disabled=true;btn.textContent="Saving…";
+      try{
+        w.name=nm;
+        w.comment=commentI.value.trim();
+        if(newPhoto){
+          let field=newPhoto;
+          try{ field=await downscale(newPhoto); }catch(e){ field=newPhoto; }
+          await idbPut("photos",{id:w.id,field,full:newPhoto});   // replaces existing record
+          w.hasPhoto=true;
+          if(photoCache[w.id]){URL.revokeObjectURL(photoCache[w.id]);delete photoCache[w.id];}
+        }
+        await idbPut("waypoints",w);
+        refreshPins();renderList();
+        closeModal();
+        toast("Waypoint updated");
+      }catch(err){
+        btn.disabled=false;btn.textContent="Save Changes";
+        toast("Save failed: "+(err&&err.message?err.message:"unknown error"));
+      }
+    };
     root.querySelector('[data-act="close"]').onclick=closeModal;
     root.querySelector('[data-act="center"]').onclick=()=>{closeModal();switchView("map");map.setView([w.lat,w.lon],18);};
     root.querySelector('[data-act="export"]').onclick=()=>{closeModal();exportWaypoint(w.id);};
@@ -1598,17 +1658,40 @@ async function openWaypoint(id){
 }
 
 /* ---------------- new waypoint ---------------- */
+// While the New Waypoint form is open we accumulate GPS fixes and average them.
+// Averaging reduces random scatter while standing still; it does not remove
+// systematic error (multipath, ionospheric), so the spread figure is shown so
+// the user can judge when the estimate has settled.
+let nwSamples=null;   // array of {lat,lon,ele} while the form is open
+function nwAverage(){
+  if(!nwSamples||nwSamples.length===0)return null;
+  let sLa=0,sLo=0,sEl=0,nEl=0;
+  nwSamples.forEach(s=>{sLa+=s.lat;sLo+=s.lon;if(s.ele!=null){sEl+=s.ele;nEl++;}});
+  const n=nwSamples.length;
+  return {lat:sLa/n,lon:sLo/n,ele:nEl?sEl/nEl:null,n};
+}
+// Spread: RMS horizontal distance of samples from their mean, in feet.
+function nwSpread(){
+  const a=nwAverage();
+  if(!a||nwSamples.length<2)return null;
+  let sum=0;
+  nwSamples.forEach(s=>{const d=haversine([a.lat,a.lon],[s.lat,s.lon]);sum+=d*d;});
+  return metersToFeet(Math.sqrt(sum/nwSamples.length));
+}
 function newWaypointFlow(){
   if(!lastFix){toast("Waiting for a GPS fix first");return;}
   const fix={...lastFix};
+  nwSamples=[{lat:fix.lat,lon:fix.lon,ele:fix.ele}];
   const body=`
     <div class="grip"></div>
     <h3>New waypoint</h3>
     <div class="card" style="box-shadow:none;margin-bottom:.8rem">
       <div class="kv"><span class="k">Latitude</span><span class="v" id="nwLat">${fmtCoord(fix.lat,"N","S")}</span></div>
       <div class="kv"><span class="k">Longitude</span><span class="v" id="nwLon">${fmtCoord(fix.lon,"E","W")}</span></div>
-      <div class="kv" style="border:none"><span class="k">Est. error</span><span class="v">${fix.acc!=null?"±"+Math.round(metersToFeet(fix.acc))+" ft":"—"}</span></div>
+      <div class="kv"><span class="k">Est. error</span><span class="v">${fix.acc!=null?"±"+Math.round(metersToFeet(fix.acc))+" ft":"—"}</span></div>
+      <div class="kv" style="border:none"><span class="k">Averaging</span><span class="v" id="nwAvgInfo">samples: 1</span></div>
     </div>
+    <div class="subtle" style="margin-top:-.4rem;margin-bottom:.6rem">Coordinates above are the running average while this form is open. Stand still and watch the spread settle, then save.</div>
     <div class="field-label">Name</div>
     <input type="text" id="nwName" placeholder="ab.${fracMinutes3(fix.lat)}.${fracMinutes3(fix.lon)}" autocomplete="off">
     <div class="warn-text hidden" id="nwWarn">That name is already in use.</div>
@@ -1642,21 +1725,42 @@ function newWaypointFlow(){
           root.querySelector("#nwPhotoLabel").textContent="Photo attached — tap Add Photo to change";}catch(err){}
       }
     };
-    root.querySelector("#nwCancel").onclick=closeModal;
+    root.querySelector("#nwCancel").onclick=()=>{nwSamples=null;closeModal();};
     root.querySelector("#nwSave").onclick=async()=>{
       let name=nameI.value.trim()||suggested;
       if(waypoints.some(w=>w.name.toLowerCase()===name.toLowerCase())){warn.classList.remove("hidden");return;}
       const saveBtn=root.querySelector("#nwSave");
       saveBtn.disabled=true;saveBtn.textContent="Saving…";
       try{
-        await saveNewWaypoint(fix,name,comment.value.trim(),photoFile);
+        // save the averaged position (falls back to the opening fix if no samples)
+        const avg=nwAverage()||fix;
+        const saveFix={lat:avg.lat,lon:avg.lon,ele:avg.ele,acc:fix.acc};
+        await saveNewWaypoint(saveFix,name,comment.value.trim(),photoFile);
+        nwSamples=null;
         closeModal();
       }catch(err){
-        saveBtn.disabled=false;saveBtn.textContent="Save waypoint";
+        saveBtn.disabled=false;saveBtn.textContent="Save Waypoint";
         toast("Save failed: "+(err&&err.message?err.message:"unknown error"));
       }
     };
   });
+}
+// Called from onPos while the New Waypoint form is open: accumulate the fix and
+// refresh the displayed average, sample count, and spread.
+function nwOnFix(){
+  if(!nwSamples||!window._modal)return;
+  const latEl=document.getElementById("nwLat");
+  if(!latEl)return;                       // form not open
+  if(lastFix)nwSamples.push({lat:lastFix.lat,lon:lastFix.lon,ele:lastFix.ele});
+  const a=nwAverage();if(!a)return;
+  latEl.textContent=fmtCoord(a.lat,"N","S");
+  const lonEl=document.getElementById("nwLon");
+  if(lonEl)lonEl.textContent=fmtCoord(a.lon,"E","W");
+  const info=document.getElementById("nwAvgInfo");
+  if(info){
+    const sp=nwSpread();
+    info.textContent="samples: "+a.n+(sp!=null?"   spread: ±"+sp.toFixed(1)+" ft":"");
+  }
 }
 async function saveNewWaypoint(fix,name,comment,photoFile){
   const id=uid();
@@ -2135,7 +2239,7 @@ function showModal(html,after){
   back._el=back;window._modal=back;
   if(after)after(back.querySelector(".modal"));
 }
-function closeModal(){if(window._modal){window._modal.remove();window._modal=null;}}
+function closeModal(){if(window._modal){window._modal.remove();window._modal=null;}nwSamples=null;}
 
 /* ---------------- view switching ---------------- */
 function switchView(name){
@@ -2215,6 +2319,21 @@ async function boot(){
   $("#btnCancelEdit").onclick=()=>{editMode=false;selected.clear();$("#editActions").classList.add("hidden");$("#editControls").classList.remove("hidden");renderList();};
   $("#btnMoveSel").onclick=moveSelected;
   $("#btnDeleteSel").onclick=deleteSelected;
+  // Select all / none operate on the waypoints currently listed (respecting the
+  // folder filter), which is what makes bulk folder moves practical.
+  $("#btnSelectAll").onclick=()=>{
+    const sel=$("#listFolderSelect").value||"__all__";
+    const list=(sel==="__all__"?waypoints:waypoints.filter(w=>w.folderId===sel));
+    list.forEach(w=>selected.add(w.id));
+    $("#selCount").textContent=selected.size;
+    renderList();
+    toast(selected.size+" selected");
+  };
+  $("#btnSelectNone").onclick=()=>{
+    selected.clear();
+    $("#selCount").textContent="0";
+    renderList();
+  };
 
   $("#btnCacheTiles").onclick=cacheTiles;
   $("#btnProbeZooms").onclick=probeZooms;
