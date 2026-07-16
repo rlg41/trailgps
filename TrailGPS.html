@@ -754,6 +754,12 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
   box-shadow:var(--shadow);border-radius:10px;padding:.5rem .8rem;font-size:.9rem;font-weight:600;
   border:1px solid var(--line);color:var(--bark);
 }
+#pinNotice{
+  position:absolute;left:50%;transform:translateX(-50%);top:.6rem;z-index:500;
+  background:rgba(255,255,255,.88);backdrop-filter:blur(2px);box-shadow:var(--shadow);
+  border-radius:999px;padding:.3rem .8rem;font-size:.74rem;font-weight:600;
+  border:1px solid var(--line);color:var(--muted);pointer-events:none;white-space:nowrap;
+}
 
 /* ---- generic panel styling for non-map views (clear left nav strip) ---- */
 .view-inner{padding:1rem 1.1rem calc(2rem + env(safe-area-inset-bottom,0)) 4rem;max-width:640px;margin:0 auto;}
@@ -890,6 +896,7 @@ textarea{resize:vertical;min-height:3rem;}
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
     </button>
     <div id="measureReadout" class="hidden">Tap points to measure</div>
+    <div id="pinNotice" class="hidden">Showing pins</div>
   </section>
 
   <!-- LIST VIEW -->
@@ -919,6 +926,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <div class="wp-head"><span>Name</span><span>Comment</span><span>Dist</span><span>Dir</span></div>
       <div id="wpList"></div>
+      <div class="subtle hidden" id="listNotice" style="text-align:center;margin-top:.6rem"></div>
     </div>
   </section>
 
@@ -944,7 +952,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.15</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.16</div>
     </div>
   </section>
 
@@ -1043,7 +1051,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div id="folderList"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.15 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.16 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -1313,6 +1321,12 @@ function initMap(){
   measureLayer=L_.layerGroup().addTo(map);
   meLayer=L_.marker([40,-77],{icon:meIcon()});
   map.on("click",onMapClick);
+  // Redraw pins when the view changes, since we only render what is in view.
+  // Debounced so a pan/zoom gesture triggers one redraw, not dozens.
+  map.on("moveend zoomend",()=>{
+    clearTimeout(refreshPins._t);
+    refreshPins._t=setTimeout(refreshPins,150);
+  });
   loadBoundaryToMap();
   refreshPins();
 }
@@ -1331,16 +1345,60 @@ async function loadBoundaryToMap(){
   }
 }
 
+// Maximum pins drawn at once. Each pin is a custom SVG icon, and Leaflet keeps
+// every one in the DOM, so drawing hundreds freezes the interface for a second
+// or more and leaves the whole app unresponsive. We draw only what is in view.
+const MAX_PINS = 120;
+let pinNotice=null;
 function refreshPins(){
   if(!pinLayer)return;
   pinLayer.clearLayers();
-  if(currentMapFolder==="__none__")return;   // overlay cleared
-  const list = currentMapFolder==="__all__" ? waypoints : waypoints.filter(w=>w.folderId===currentMapFolder);
+  if(currentMapFolder==="__none__"){updatePinNotice(0,0);return;}
+  let list = currentMapFolder==="__all__" ? waypoints : waypoints.filter(w=>w.folderId===currentMapFolder);
+  const total=list.length;
+  // Restrict to the current view plus a margin, so panning feels continuous.
+  // If the bounds are unusable (map not sized yet), skip the filter rather than
+  // wrongly hiding every pin.
+  if(map){
+    try{
+      const b=map.getBounds().pad(0.25);
+      if(b&&b.isValid&&b.isValid()){
+        const inView=list.filter(w=>b.contains([w.lat,w.lon]));
+        // Only adopt the filtered set if it found something, or if the view
+        // genuinely contains nothing (a real pan away from the property).
+        if(inView.length>0||total===0)list=inView;
+        else if(b.getNorth()!==b.getSouth())list=inView;
+      }
+    }catch(e){/* map not ready; fall through with full list */}
+  }
+  // If still too many (zoomed far out), show the nearest to the view centre.
+  if(list.length>MAX_PINS){
+    let c=null;
+    try{c=map.getCenter();}catch(e){}
+    const ref = c ? [c.lat,c.lng] : (lastFix?[lastFix.lat,lastFix.lon]:[list[0].lat,list[0].lon]);
+    list=list
+      .map(w=>({w,d:haversine(ref,[w.lat,w.lon])}))
+      .sort((a,b)=>a.d-b.d)
+      .slice(0,MAX_PINS)
+      .map(x=>x.w);
+  }
   list.forEach(w=>{
     const m=window.L.marker([w.lat,w.lon],{icon:pinIcon(colorForFolder(w.folderId),w.name)});
     m.on("click",()=>openWaypoint(w.id));
     m.addTo(pinLayer);
   });
+  updatePinNotice(list.length,total);
+}
+// Tell the user when not every pin is drawn, so a missing pin is never a mystery.
+function updatePinNotice(shown,total){
+  const el=document.getElementById("pinNotice");
+  if(!el)return;
+  if(total>0&&shown<total){
+    el.textContent="Showing "+shown+" of "+total+" pins — zoom in to see more";
+    el.classList.remove("hidden");
+  }else{
+    el.classList.add("hidden");
+  }
 }
 
 function onMapClick(e){
@@ -1556,6 +1614,11 @@ async function enableCompass(){
 
 /* ---------------- waypoint list ---------------- */
 let listSort="alpha";   // "alpha" | "proximity"
+// Rows are capped: building hundreds of rows blocks the main thread long enough
+// to make taps unresponsive. The cap keeps the interface fluid; "Show all"
+// raises it deliberately when the full list is genuinely wanted.
+const LIST_PAGE = 100;
+let listLimit = LIST_PAGE;
 function renderList(){
   const sel=$("#listFolderSelect").value||"__all__";
   let list=(sel==="__all__"?waypoints:waypoints.filter(w=>w.folderId===sel)).slice();
@@ -1568,13 +1631,21 @@ function renderList(){
   if(listSort==="proximity"&&here){list.sort((a,b)=>a._dist-b._dist);}
   else{list.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));}
 
+  const total=list.length;
+  const shown=Math.min(listLimit,total);
+  const slice=list.slice(0,shown);
+
   const box=$("#wpList");box.innerHTML="";
-  if(list.length===0){
+  if(total===0){
     box.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24"><path d="M12 2a8 8 0 00-8 8c0 5 8 12 8 12s8-7 8-12a8 8 0 00-8-8z"/><circle cx="12" cy="10" r="3"/></svg><div>No waypoints here yet.</div></div>';
+    updateListNotice(0,0);
     return;
   }
   const hdg=currentHeading();
-  list.forEach(w=>{
+  // Build off-document, then insert once: appending row by row forces layout
+  // work per row and is what made the list slow with hundreds of waypoints.
+  const frag=document.createDocumentFragment();
+  slice.forEach(w=>{
     const el=document.createElement("div");el.className="wp-row";el._wpId=w.id;el._wp=w;
     const check=editMode?'<div class="wp-check '+(selected.has(w.id)?"on":"")+'">'+(selected.has(w.id)?'<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke="#fff"><path d="M20 6L9 17l-5-5"/></svg>':'')+'</div>':'';
     const distTxt = w._dist==null ? "—" : (w._dist*3.28084>=5280 ? (w._dist*3.28084/5280).toFixed(2)+" mi" : Math.round(w._dist*3.28084)+" ft");
@@ -1588,11 +1659,38 @@ function renderList(){
       '<div class="wp-comment">'+escapeHtml((w.comment||"").slice(0,44))+'</div>'+
       '<div class="wp-dist">'+distTxt+'</div>'+
       '<div class="wp-brg">'+arrow+'</div>';
-    el.onclick=()=>{ if(editMode)toggleSel(w.id); else openWaypoint(w.id); };
-    box.appendChild(el);
+    el.onclick=()=>{ if(editMode)toggleSel(w.id,el); else openWaypoint(w.id); };
+    frag.appendChild(el);
   });
+  box.appendChild(frag);
+  updateListNotice(shown,total);
 }
-function toggleSel(id){if(selected.has(id))selected.delete(id);else selected.add(id);$("#selCount").textContent=selected.size;renderList();}
+function updateListNotice(shown,total){
+  const el=document.getElementById("listNotice");
+  if(!el)return;
+  if(shown<total){
+    el.innerHTML="Showing "+shown+" of "+total+" &nbsp;<button class='btn ghost' id='btnShowMore' style='display:inline-flex;width:auto;min-height:1.7rem;padding:0 .6rem;font-size:.74rem'>Show more</button>";
+    el.classList.remove("hidden");
+    const b=document.getElementById("btnShowMore");
+    if(b)b.onclick=()=>{listLimit+=LIST_PAGE;renderList();};
+  }else{
+    el.classList.add("hidden");
+  }
+}
+// Toggle one row's selection without rebuilding the list — a full rebuild per
+// tap made selection feel broken with hundreds of waypoints.
+function toggleSel(id,el){
+  if(selected.has(id))selected.delete(id);else selected.add(id);
+  $("#selCount").textContent=selected.size;
+  if(el){
+    const box=el.querySelector(".wp-check");
+    if(box){
+      const on=selected.has(id);
+      box.classList.toggle("on",on);
+      box.innerHTML=on?'<svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke="#fff"><path d="M20 6L9 17l-5-5"/></svg>':'';
+    }
+  }else{renderList();}
+}
 function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 
 /* ---------------- waypoint detail modal ---------------- */
@@ -2311,9 +2409,10 @@ async function boot(){
   $$("#nav button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 
   $("#mapFolderSelect").onchange=e=>{currentMapFolder=e.target.value;refreshPins();};
-  $("#listFolderSelect").onchange=renderList;
+  $("#listFolderSelect").onchange=()=>{listLimit=LIST_PAGE;renderList();};
   $$("#sortSeg button").forEach(b=>b.onclick=()=>{
     listSort=b.dataset.sort;
+    listLimit=LIST_PAGE;
     $$("#sortSeg button").forEach(x=>x.classList.toggle("active",x===b));
     if(listSort==="proximity"&&!lastFix)toast("No GPS fix yet — nearest needs your position");
     renderList();
