@@ -727,6 +727,9 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
   position:absolute;left:.5rem;bottom:.6rem;z-index:650;
   display:flex;flex-direction:column-reverse;gap:.5rem;
 }
+/* While a modal is open the nav serves no purpose and would float over the
+   panel's controls; hide it so nothing can intercept taps meant for the form. */
+body.modal-open #nav{display:none;}
 #nav button{
   width:var(--tap);height:var(--tap);border-radius:50%;
   display:flex;align-items:center;justify-content:center;
@@ -781,6 +784,12 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 label.btn{position:relative;overflow:hidden;cursor:pointer;}
 .btn:active{filter:brightness(.94);}
 .btn svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;}
+/* Taps must always land on the button, never on the icon or label inside it —
+   on iOS a child element can become the event target and, in a scrolling
+   container, that hit test is unreliable. Also disable the double-tap-to-zoom
+   delay so the first tap registers immediately. */
+.btn{touch-action:manipulation;-webkit-tap-highlight-color:rgba(0,0,0,.06);}
+.btn > *{pointer-events:none;}
 
 input[type=text],textarea,select{
   width:100%;min-height:var(--tap);border:1.5px solid var(--line);border-radius:10px;
@@ -837,9 +846,25 @@ textarea{resize:vertical;min-height:3rem;}
 .wp-row .wp-check{width:22px;height:22px;}
 
 /* ---- modal ---- */
-.modal-back{position:fixed;inset:0;background:rgba(20,33,28,.5);z-index:900;display:flex;align-items:flex-end;justify-content:center;}
-.modal{background:var(--paper);width:100%;max-width:560px;border-radius:18px 18px 0 0;padding:1.1rem 1.1rem calc(1.4rem + env(safe-area-inset-bottom,0));
-  max-height:92vh;overflow:auto;box-shadow:0 -4px 24px rgba(0,0,0,.2);}
+/* Modal.
+   The backdrop scrolls (not the panel) and the panel is centred with margin
+   rather than bottom-anchored. A bottom-anchored panel that is itself a scroll
+   container sits exactly where the iOS keyboard appears, and Safari's hit
+   testing for the controls underneath it becomes unreliable once the keyboard
+   shrinks the visual viewport — taps on the lowest buttons get lost. Letting the
+   backdrop own the scrolling and keeping the panel in normal flow keeps every
+   control reachable and tappable with the keyboard open. */
+.modal-back{
+  position:fixed;inset:0;background:rgba(20,33,28,.5);z-index:900;
+  overflow-y:auto;-webkit-overflow-scrolling:touch;
+  display:block;padding:2rem 0 calc(6rem + env(safe-area-inset-bottom,0));
+}
+.modal{
+  background:var(--paper);width:100%;max-width:560px;border-radius:18px;
+  padding:1.1rem 1.1rem 1.4rem;
+  margin:0 auto;
+  box-shadow:0 -4px 24px rgba(0,0,0,.2);
+}
 .modal h3{margin:.1rem 0 .9rem;font-size:1.15rem;font-weight:680;text-transform:none;letter-spacing:0;color:var(--ink);}
 .modal .grip{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto .9rem;}
 .modal-photo{width:100%;border-radius:12px;margin:.5rem 0;max-height:44vh;object-fit:cover;background:#e5e7dd;}
@@ -952,7 +977,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.16</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.17</div>
     </div>
   </section>
 
@@ -1051,7 +1076,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div id="folderList"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.16 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.17 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -1712,8 +1737,9 @@ async function openWaypoint(id){
     <textarea id="wpComment" maxlength="64">${escapeHtml(w.comment||"")}</textarea>
     <div class="char-count"><span id="wpCount">0</span>/64</div>
     <div class="row" style="margin-top:.7rem">
-      <label class="btn secondary" id="wpPhotoBtn" for="wpPhotoInput"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5L5 21"/></svg><span id="wpPhotoBtnText">${url?'Replace Photo':'Add Photo'}</span><input type="file" id="wpPhotoInput" accept="image/*" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;"></label>
-      <button class="btn" data-act="save"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Save Changes</button>
+      <button type="button" class="btn secondary" id="wpPhotoBtn"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5L5 21"/></svg><span id="wpPhotoBtnText">${url?'Replace Photo':'Add Photo'}</span></button>
+      <input type="file" id="wpPhotoInput" accept="image/*" style="display:none">
+      <button type="button" class="btn" data-act="save"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Save Changes</button>
     </div>
     <div class="stack" style="margin-top:.7rem">
       <button class="btn secondary" data-act="export">Export this waypoint</button>
@@ -1731,6 +1757,10 @@ async function openWaypoint(id){
     const updCount=()=>count.textContent=commentI.value.length;
     updCount();commentI.oninput=updCount;
     nameI.oninput=()=>warn.classList.add("hidden");
+    root.querySelector("#wpPhotoBtn").onclick=()=>{
+      if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+      setTimeout(()=>root.querySelector("#wpPhotoInput").click(),60);
+    };
     root.querySelector("#wpPhotoInput").onchange=e=>{
       newPhoto=e.target.files&&e.target.files[0]?e.target.files[0]:null;
       if(newPhoto){
@@ -1825,9 +1855,10 @@ function newWaypointFlow(){
     <img id="nwPreview" class="modal-photo hidden">
     <div id="nwPhotoLabel" class="subtle" style="margin-top:.5rem"></div>
     <div class="row" style="margin-top:.9rem">
-      <label class="btn secondary" id="nwPhotoBtn" for="nwPhoto"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5L5 21"/></svg>Add Photo<input type="file" id="nwPhoto" accept="image/*" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;"></label>
-      <button class="btn" id="nwSave"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Save Waypoint</button>
-      <button class="btn ghost" id="nwCancel">Cancel</button>
+      <button type="button" class="btn secondary" id="nwPhotoBtn"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 16l-5-5L5 21"/></svg>Add Photo</button>
+      <input type="file" id="nwPhoto" accept="image/*" style="display:none">
+      <button type="button" class="btn" id="nwSave"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Save Waypoint</button>
+      <button type="button" class="btn ghost" id="nwCancel">Cancel</button>
     </div>`;
   showModal(body,(root)=>{
     const suggested="ab."+fracMinutes3(fix.lat)+"."+fracMinutes3(fix.lon);
@@ -1855,6 +1886,13 @@ function newWaypointFlow(){
     nameI.oninput=()=>{
       const v=nameI.value.trim().toLowerCase();
       warn.classList.toggle("hidden",!v||!existingNames.has(v));
+    };
+    root.querySelector("#nwPhotoBtn").onclick=()=>{
+      // Dismiss the keyboard first: with it up, the viewport is shifted and the
+      // file picker can fail to present. Then trigger the input directly rather
+      // than relying on label-for forwarding, which is unreliable on iOS.
+      if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+      setTimeout(()=>root.querySelector("#nwPhoto").click(),60);
     };
     root.querySelector("#nwPhoto").onchange=e=>{
       photoFile=e.target.files&&e.target.files[0]?e.target.files[0]:null;
@@ -2372,12 +2410,20 @@ function populateFolderSelects(){
 function showModal(html,after){
   const back=document.createElement("div");back.className="modal-back";
   back.innerHTML='<div class="modal">'+html+'</div>';
-  back.onclick=e=>{if(e.target===back)closeModal();};
+  // Dismiss only on a genuine tap on the backdrop itself — compare down/up so a
+  // scroll gesture or a drag that ends on the backdrop doesn't close the form.
+  let downOnBack=false;
+  back.addEventListener("pointerdown",e=>{downOnBack=(e.target===back);});
+  back.addEventListener("pointerup",e=>{
+    if(downOnBack&&e.target===back)closeModal();
+    downOnBack=false;
+  });
   document.body.appendChild(back);
+  document.body.classList.add("modal-open");
   back._el=back;window._modal=back;
   if(after)after(back.querySelector(".modal"));
 }
-function closeModal(){if(window._modal){window._modal.remove();window._modal=null;}nwSamples=null;}
+function closeModal(){if(window._modal){window._modal.remove();window._modal=null;}document.body.classList.remove("modal-open");nwSamples=null;}
 
 /* ---------------- view switching ---------------- */
 function switchView(name){
