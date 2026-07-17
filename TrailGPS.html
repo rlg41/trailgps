@@ -856,12 +856,13 @@ textarea{resize:vertical;min-height:3rem;}
    the visual viewport keeps the two in agreement with the keyboard up or down. */
 .modal-back{
   position:fixed;left:0;top:0;width:100%;height:100%;
-  /* Never let the backdrop be smaller than the screen. syncModalViewport sets an
-     explicit height from the visual viewport so the panel tracks the keyboard,
-     but if that value is ever short or stale the map would be exposed beneath the
-     overlay and a tap could reach a waypoint pin through the form. These minimums
-     keep the shield full-size no matter what the viewport reports. */
-  min-height:100vh;min-width:100vw;
+  /* No min-height here on purpose. syncModalViewport sets an explicit height from
+     the visual viewport, and in landscape the keyboard leaves only a shallow
+     strip; forcing a 100vh floor would make this box taller than the visible area,
+     so its own scrolling could not bring the panel out from behind the keyboard.
+     Letting it shrink is what makes the form reachable in landscape. The map is
+     shielded by setMapInteractive() rather than by this element's size, so a
+     short backdrop no longer risks a tap reaching a waypoint pin. */
   background:rgba(20,33,28,.5);z-index:900;
   overflow-y:auto;-webkit-overflow-scrolling:touch;
   padding:1.2rem 0 2rem;
@@ -872,6 +873,14 @@ textarea{resize:vertical;min-height:3rem;}
   background:var(--paper);width:calc(100% - 1.6rem);max-width:560px;border-radius:18px;
   padding:1.1rem;margin:0 auto;
   box-shadow:0 6px 28px rgba(0,0,0,.28);
+}
+/* When the visible strip is shallow — landscape with the keyboard up — reclaim
+   the vertical space the padding would otherwise waste, so more of the form is
+   readable at once. */
+@media (max-height:480px){
+  .modal-back{padding:.4rem 0 .8rem;}
+  .modal{padding:.7rem;}
+  .modal h3{margin:.2rem 0 .4rem;}
 }
 .modal h3{margin:.1rem 0 .9rem;font-size:1.15rem;font-weight:680;text-transform:none;letter-spacing:0;color:var(--ink);}
 .modal .grip{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto .9rem;}
@@ -985,7 +994,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.20</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.21</div>
     </div>
   </section>
 
@@ -1076,7 +1085,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div id="folderList"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.20 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.21 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -2417,6 +2426,27 @@ function setMapInteractive(on){
   const mapEl=document.getElementById("map");
   if(mapEl)mapEl.style.pointerEvents=on?"":"none";
 }
+// Bring the focused field into view inside the modal's own scroller.
+// In landscape the keyboard leaves only a shallow strip, so a field low in the
+// form sits behind it. The browser's own scroll-into-view acts on the page, not
+// on our overlay, so we do it ourselves against the element the user is typing
+// in — with the panel free to scroll (see the note on .modal-back), this is what
+// keeps every field reachable in either orientation.
+function keepFocusVisible(){
+  const back=window._modal;
+  if(!back)return;
+  const el=document.activeElement;
+  if(!el||!back.contains(el))return;
+  if(!/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))return;
+  const bb=back.getBoundingClientRect();
+  const eb=el.getBoundingClientRect();
+  const margin=12;
+  if(eb.bottom>bb.bottom-margin){
+    back.scrollTop += (eb.bottom-(bb.bottom-margin));
+  }else if(eb.top<bb.top+margin){
+    back.scrollTop -= ((bb.top+margin)-eb.top);
+  }
+}
 function syncModalViewport(){
   const back=window._modal;
   if(!back)return;
@@ -2425,6 +2455,9 @@ function syncModalViewport(){
   back.style.height=vv.height+"px";
   back.style.width=vv.width+"px";
   back.style.transform="translate("+vv.offsetLeft+"px,"+vv.offsetTop+"px)";
+  // The geometry just changed — most often because the keyboard opened or
+  // closed — so make sure whatever is being typed in is still on screen.
+  setTimeout(keepFocusVisible,0);
 }
 // Bind a handler that fires on a real finger tap as well as a click.
 // Relying on the synthesized click alone has proven unreliable inside the modal
@@ -2464,6 +2497,9 @@ function showModal(html,after){
   document.body.classList.add("modal-open");
   back._el=back;window._modal=back;
   setMapInteractive(false);          // nothing below the overlay may receive taps
+  // When a field is tapped, the keyboard is about to appear; give it a moment to
+  // resize the viewport, then bring that field into view.
+  back.addEventListener("focusin",()=>setTimeout(keepFocusVisible,300));
   syncModalViewport();
   if(window.visualViewport){
     window.visualViewport.addEventListener("resize",syncModalViewport);
