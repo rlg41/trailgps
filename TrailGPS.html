@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Trail GPS</title>
@@ -847,23 +847,23 @@ textarea{resize:vertical;min-height:3rem;}
 
 /* ---- modal ---- */
 /* Modal.
-   The backdrop scrolls (not the panel) and the panel is centred with margin
-   rather than bottom-anchored. A bottom-anchored panel that is itself a scroll
-   container sits exactly where the iOS keyboard appears, and Safari's hit
-   testing for the controls underneath it becomes unreliable once the keyboard
-   shrinks the visual viewport — taps on the lowest buttons get lost. Letting the
-   backdrop own the scrolling and keeping the panel in normal flow keeps every
-   control reachable and tappable with the keyboard open. */
+   The host is fixed, but its size is driven from the VisualViewport API rather
+   than from the layout viewport (see syncModalViewport in the script). This
+   matters on iOS: when the keyboard opens, the layout viewport does not change,
+   so a fixed overlay keeps its old geometry while the page is scrolled beneath
+   it — painting and hit testing end up in different places and taps on the lower
+   controls either do nothing or land on the wrong element. Sizing the host to
+   the visual viewport keeps the two in agreement with the keyboard up or down. */
 .modal-back{
-  position:fixed;inset:0;background:rgba(20,33,28,.5);z-index:900;
+  position:fixed;left:0;top:0;width:100%;height:100%;
+  background:rgba(20,33,28,.5);z-index:900;
   overflow-y:auto;-webkit-overflow-scrolling:touch;
-  display:block;padding:2rem 0 calc(6rem + env(safe-area-inset-bottom,0));
+  padding:1.2rem 0 2rem;
 }
 .modal{
-  background:var(--paper);width:100%;max-width:560px;border-radius:18px;
-  padding:1.1rem 1.1rem 1.4rem;
-  margin:0 auto;
-  box-shadow:0 -4px 24px rgba(0,0,0,.2);
+  background:var(--paper);width:calc(100% - 1.6rem);max-width:560px;border-radius:18px;
+  padding:1.1rem;margin:0 auto;
+  box-shadow:0 6px 28px rgba(0,0,0,.28);
 }
 .modal h3{margin:.1rem 0 .9rem;font-size:1.15rem;font-weight:680;text-transform:none;letter-spacing:0;color:var(--ink);}
 .modal .grip{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto .9rem;}
@@ -977,7 +977,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.17</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.18</div>
     </div>
   </section>
 
@@ -1076,7 +1076,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div id="folderList"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.17 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.18 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -1757,10 +1757,10 @@ async function openWaypoint(id){
     const updCount=()=>count.textContent=commentI.value.length;
     updCount();commentI.oninput=updCount;
     nameI.oninput=()=>warn.classList.add("hidden");
-    root.querySelector("#wpPhotoBtn").onclick=()=>{
+    onTap(root.querySelector("#wpPhotoBtn"),()=>{
       if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
       setTimeout(()=>root.querySelector("#wpPhotoInput").click(),60);
-    };
+    });
     root.querySelector("#wpPhotoInput").onchange=e=>{
       newPhoto=e.target.files&&e.target.files[0]?e.target.files[0]:null;
       if(newPhoto){
@@ -1774,7 +1774,7 @@ async function openWaypoint(id){
         toast("Photo will replace the existing one when you save");
       }
     };
-    root.querySelector('[data-act="save"]').onclick=async()=>{
+    onTap(root.querySelector('[data-act="save"]'),async()=>{
       const nm=nameI.value.trim();
       if(!nm){toast("Name cannot be empty");return;}
       // duplicate check excludes this waypoint itself
@@ -1799,10 +1799,10 @@ async function openWaypoint(id){
         btn.disabled=false;btn.textContent="Save Changes";
         toast("Save failed: "+(err&&err.message?err.message:"unknown error"));
       }
-    };
-    root.querySelector('[data-act="close"]').onclick=closeModal;
-    root.querySelector('[data-act="center"]').onclick=()=>{closeModal();switchView("map");map.setView([w.lat,w.lon],18);};
-    root.querySelector('[data-act="export"]').onclick=()=>{closeModal();exportWaypoint(w.id);};
+    });
+    onTap(root.querySelector('[data-act="close"]'),closeModal);
+    onTap(root.querySelector('[data-act="center"]'),()=>{closeModal();switchView("map");map.setView([w.lat,w.lon],18);});
+    onTap(root.querySelector('[data-act="export"]'),()=>{closeModal();exportWaypoint(w.id);});
   });
 }
 
@@ -1843,7 +1843,7 @@ function newWaypointFlow(){
       <div class="kv" style="border:none"><span class="k">Averaging</span><span class="v" id="nwAvgInfo">samples: 1</span></div>
     </div>
     <div class="row" style="margin-top:-.3rem;margin-bottom:.5rem">
-      <button class="btn secondary" id="nwAvgToggle" style="flex:1">Stop averaging</button>
+      <button type="button" class="btn secondary" id="nwAvgToggle" style="flex:1">Stop averaging</button>
     </div>
     <div class="subtle" style="margin-bottom:.6rem">Coordinates above are the running average. Stand still and watch the spread settle, then stop averaging and fill in the details below.</div>
     <div class="field-label">Name</div>
@@ -1870,7 +1870,7 @@ function newWaypointFlow(){
     comment.oninput=()=>count.textContent=comment.value.length;
     let photoFile=null;
     const avgBtn=root.querySelector("#nwAvgToggle");
-    avgBtn.onclick=()=>{
+    onTap(avgBtn,()=>{
       nwAvgPaused=!nwAvgPaused;
       avgBtn.textContent=nwAvgPaused?"Resume averaging":"Stop averaging";
       const info=root.querySelector("#nwAvgInfo");
@@ -1879,7 +1879,7 @@ function newWaypointFlow(){
         if(a)info.textContent="stopped at "+a.n+" samples"+(sp!=null?"   spread: ±"+sp.toFixed(1)+" ft":"");
       }
       toast(nwAvgPaused?"Averaging stopped — position locked":"Averaging resumed");
-    };
+    });
     // Build the existing-name set once, so the duplicate check is a single lookup
     // per keystroke rather than a scan of every waypoint (noticeable at 700+).
     const existingNames=new Set(waypoints.map(w=>w.name.toLowerCase()));
@@ -1887,13 +1887,13 @@ function newWaypointFlow(){
       const v=nameI.value.trim().toLowerCase();
       warn.classList.toggle("hidden",!v||!existingNames.has(v));
     };
-    root.querySelector("#nwPhotoBtn").onclick=()=>{
+    onTap(root.querySelector("#nwPhotoBtn"),()=>{
       // Dismiss the keyboard first: with it up, the viewport is shifted and the
       // file picker can fail to present. Then trigger the input directly rather
       // than relying on label-for forwarding, which is unreliable on iOS.
       if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
       setTimeout(()=>root.querySelector("#nwPhoto").click(),60);
-    };
+    });
     root.querySelector("#nwPhoto").onchange=e=>{
       photoFile=e.target.files&&e.target.files[0]?e.target.files[0]:null;
       if(photoFile){
@@ -1901,8 +1901,8 @@ function newWaypointFlow(){
           root.querySelector("#nwPhotoLabel").textContent="Photo attached — tap Add Photo to change";}catch(err){}
       }
     };
-    root.querySelector("#nwCancel").onclick=()=>{nwSamples=null;closeModal();};
-    root.querySelector("#nwSave").onclick=async()=>{
+    onTap(root.querySelector("#nwCancel"),()=>{nwSamples=null;closeModal();});
+    onTap(root.querySelector("#nwSave"),async()=>{
       let name=nameI.value.trim()||suggested;
       if(waypoints.some(w=>w.name.toLowerCase()===name.toLowerCase())){warn.classList.remove("hidden");return;}
       const saveBtn=root.querySelector("#nwSave");
@@ -1918,7 +1918,7 @@ function newWaypointFlow(){
         saveBtn.disabled=false;saveBtn.textContent="Save Waypoint";
         toast("Save failed: "+(err&&err.message?err.message:"unknown error"));
       }
-    };
+    });
   });
 }
 // Called from onPos while the New Waypoint form is open: accumulate the fix and
@@ -2407,6 +2407,45 @@ function populateFolderSelects(){
 }
 
 /* ---------------- modal helpers ---------------- */
+// Keep the modal's geometry locked to the *visual* viewport.
+// On iOS the layout viewport does not shrink when the keyboard opens; the page
+// is scrolled instead. A position:fixed overlay therefore keeps its original
+// geometry while its contents are drawn somewhere else, and taps on the lower
+// controls land on the wrong element (or on nothing). VisualViewport reports the
+// region actually on screen, so we size and offset the overlay to match it and
+// the two coordinate spaces agree again.
+function syncModalViewport(){
+  const back=window._modal;
+  if(!back)return;
+  const vv=window.visualViewport;
+  if(!vv)return;                       // older engine: fall back to CSS 100%
+  back.style.height=vv.height+"px";
+  back.style.width=vv.width+"px";
+  back.style.transform="translate("+vv.offsetLeft+"px,"+vv.offsetTop+"px)";
+}
+// Bind a handler that fires on a real finger tap as well as a click.
+// Relying on the synthesized click alone has proven unreliable inside the modal
+// on iOS; touchend fires directly from the touch and is not subject to the same
+// hit-test drift. Guard against the pair firing twice for one tap.
+function onTap(el,fn){
+  if(!el)return;
+  let handled=0;
+  const run=e=>{
+    const now=Date.now();
+    if(now-handled<400)return;        // ignore the click that follows a touch
+    handled=now;
+    fn(e);
+  };
+  el.addEventListener("touchend",e=>{
+    // only treat as a tap if the finger didn't travel (i.e. not a scroll)
+    if(el._tMoved){el._tMoved=false;return;}
+    e.preventDefault();
+    run(e);
+  },{passive:false});
+  el.addEventListener("touchstart",()=>{el._tMoved=false;},{passive:true});
+  el.addEventListener("touchmove",()=>{el._tMoved=true;},{passive:true});
+  el.addEventListener("click",run);
+}
 function showModal(html,after){
   const back=document.createElement("div");back.className="modal-back";
   back.innerHTML='<div class="modal">'+html+'</div>';
@@ -2421,9 +2460,22 @@ function showModal(html,after){
   document.body.appendChild(back);
   document.body.classList.add("modal-open");
   back._el=back;window._modal=back;
+  syncModalViewport();
+  if(window.visualViewport){
+    window.visualViewport.addEventListener("resize",syncModalViewport);
+    window.visualViewport.addEventListener("scroll",syncModalViewport);
+  }
   if(after)after(back.querySelector(".modal"));
 }
-function closeModal(){if(window._modal){window._modal.remove();window._modal=null;}document.body.classList.remove("modal-open");nwSamples=null;}
+function closeModal(){
+  if(window.visualViewport){
+    window.visualViewport.removeEventListener("resize",syncModalViewport);
+    window.visualViewport.removeEventListener("scroll",syncModalViewport);
+  }
+  if(window._modal){window._modal.remove();window._modal=null;}
+  document.body.classList.remove("modal-open");
+  nwSamples=null;
+}
 
 /* ---------------- view switching ---------------- */
 function switchView(name){
