@@ -856,9 +856,17 @@ textarea{resize:vertical;min-height:3rem;}
    the visual viewport keeps the two in agreement with the keyboard up or down. */
 .modal-back{
   position:fixed;left:0;top:0;width:100%;height:100%;
+  /* Never let the backdrop be smaller than the screen. syncModalViewport sets an
+     explicit height from the visual viewport so the panel tracks the keyboard,
+     but if that value is ever short or stale the map would be exposed beneath the
+     overlay and a tap could reach a waypoint pin through the form. These minimums
+     keep the shield full-size no matter what the viewport reports. */
+  min-height:100vh;min-width:100vw;
   background:rgba(20,33,28,.5);z-index:900;
   overflow-y:auto;-webkit-overflow-scrolling:touch;
   padding:1.2rem 0 2rem;
+  /* The overlay owns all touches; nothing below it should ever receive one. */
+  touch-action:pan-y;
 }
 .modal{
   background:var(--paper);width:calc(100% - 1.6rem);max-width:560px;border-radius:18px;
@@ -977,7 +985,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.19</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.20</div>
     </div>
   </section>
 
@@ -1068,7 +1076,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div id="folderList"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.19 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.20 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -1712,6 +1720,11 @@ function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;","
 
 /* ---------------- waypoint detail modal ---------------- */
 async function openWaypoint(id){
+  // Never open a second modal over an existing one. If a stray touch ever does
+  // reach a pin while a form is up, this keeps it from replacing the form the
+  // user is working in — which would look like Add Photo opening the wrong
+  // waypoint and would silently discard whatever had been typed.
+  if(window._modal)return;
   const w=waypoints.find(x=>x.id===id);if(!w)return;
   const url=w.hasPhoto?await getPhotoURL(id):null;
   const body=`
@@ -1750,8 +1763,12 @@ async function openWaypoint(id){
     updCount();commentI.oninput=updCount;
     nameI.oninput=()=>warn.classList.add("hidden");
     onTap(root.querySelector("#wpPhotoBtn"),()=>{
+      // Same settling delay as the new-waypoint form — see the note there.
       if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
-      setTimeout(()=>root.querySelector("#wpPhotoInput").click(),60);
+      setTimeout(()=>{
+        syncModalViewport();
+        root.querySelector("#wpPhotoInput").click();
+      },250);
     });
     root.querySelector("#wpPhotoInput").onchange=e=>{
       newPhoto=e.target.files&&e.target.files[0]?e.target.files[0]:null;
@@ -1880,11 +1897,15 @@ function newWaypointFlow(){
       warn.classList.toggle("hidden",!v||!existingNames.has(v));
     };
     onTap(root.querySelector("#nwPhotoBtn"),()=>{
-      // Dismiss the keyboard first: with it up, the viewport is shifted and the
-      // file picker can fail to present. Then trigger the input directly rather
-      // than relying on label-for forwarding, which is unreliable on iOS.
+      // Dismiss the keyboard, let the viewport finish settling, re-sync the
+      // overlay to the new geometry, and only then open the picker. Going too
+      // early means the file dialog is presented while the viewport is still
+      // moving, which is when stray taps have been observed landing elsewhere.
       if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
-      setTimeout(()=>root.querySelector("#nwPhoto").click(),60);
+      setTimeout(()=>{
+        syncModalViewport();
+        root.querySelector("#nwPhoto").click();
+      },250);
     });
     root.querySelector("#nwPhoto").onchange=e=>{
       photoFile=e.target.files&&e.target.files[0]?e.target.files[0]:null;
@@ -2379,6 +2400,23 @@ function populateFolderSelects(){
 // controls land on the wrong element (or on nothing). VisualViewport reports the
 // region actually on screen, so we size and offset the overlay to match it and
 // the two coordinate spaces agree again.
+// Suspend/restore the map's own interaction while a modal is open.
+// The overlay should shield the map, but a stale or short backdrop geometry can
+// leave a strip of map exposed, and a tap there lands on a waypoint pin — which
+// is how tapping Add Photo could open an unrelated existing waypoint. Turning
+// the map's handlers off removes that possibility entirely rather than relying
+// on the shield being pixel-perfect.
+function setMapInteractive(on){
+  if(!map)return;
+  const parts=[map.dragging,map.touchZoom,map.doubleClickZoom,map.scrollWheelZoom,map.boxZoom,map.keyboard];
+  parts.forEach(p=>{ if(p){ try{ on?p.enable():p.disable(); }catch(e){} } });
+  if(pinLayer){
+    // Stop pins responding to taps while a form is up.
+    try{ pinLayer.eachLayer(m=>{ if(m.setInteractive)m.setInteractive(on); }); }catch(e){}
+  }
+  const mapEl=document.getElementById("map");
+  if(mapEl)mapEl.style.pointerEvents=on?"":"none";
+}
 function syncModalViewport(){
   const back=window._modal;
   if(!back)return;
@@ -2425,6 +2463,7 @@ function showModal(html,after){
   document.body.appendChild(back);
   document.body.classList.add("modal-open");
   back._el=back;window._modal=back;
+  setMapInteractive(false);          // nothing below the overlay may receive taps
   syncModalViewport();
   if(window.visualViewport){
     window.visualViewport.addEventListener("resize",syncModalViewport);
@@ -2439,6 +2478,7 @@ function closeModal(){
   }
   if(window._modal){window._modal.remove();window._modal=null;}
   document.body.classList.remove("modal-open");
+  setMapInteractive(true);           // hand the map back
   nwSamples=null;
 }
 
