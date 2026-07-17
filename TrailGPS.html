@@ -977,7 +977,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.18</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.19</div>
     </div>
   </section>
 
@@ -1062,21 +1062,13 @@ textarea{resize:vertical;min-height:3rem;}
         <div class="subtle" id="importResult"></div>
       </div>
 
-      <h3>Backup &amp; restore</h3>
-      <div class="card stack">
-        <div class="subtle">Save the entire app state — waypoints, folders, photos, settings — to one file, or restore from a saved backup.</div>
-        <button class="btn secondary" id="btnBackup"><svg viewBox="0 0 24 24"><path d="M12 3v12M8 11l4 4 4-4M4 19h16"/></svg>Back up all data</button>
-        <button class="btn secondary" id="btnRestore"><svg viewBox="0 0 24 24"><path d="M12 21V9M8 13l4-4 4 4M4 5h16"/></svg>Restore all data
-          <input type="file" id="restoreFile" accept=".json,.trailgps" style="display:none"></button>
-      </div>
-
       <h3>Folders</h3>
       <div class="card stack">
         <button class="btn secondary" id="btnNewFolder"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/><path d="M12 12v4M10 14h4"/></svg>New folder</button>
         <div id="folderList"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.18 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.19 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -2288,45 +2280,18 @@ async function loadBoundaryFile(file){
 }
 
 /* ---------------- backup / restore ---------------- */
-async function backupAll(){
-  toast("Preparing backup…");
-  const wpts=await idbAll("waypoints");
-  const flds=await idbAll("folders");
-  const meta=await idbAll("meta");
-  const photos=await idbAll("photos");
-  const tiles=await idbAll("tiles");
-  const blobToB64=b=>new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(b);});
-  const photosOut=[];
-  for(const p of photos){
-    photosOut.push({id:p.id,field:await blobToB64(p.field),full:p.full?await blobToB64(p.full):null});
-  }
-  const tilesOut=[];
-  for(const t of tiles){tilesOut.push({key:t.key,blob:await blobToB64(t.blob)});}
-  const backup={version:1,created:new Date().toISOString(),waypoints:wpts,folders:flds,meta,photos:photosOut,tiles:tilesOut};
-  const blob=new Blob([JSON.stringify(backup)],{type:"application/json"});
-  const fname="trailgps-backup-"+new Date().toISOString().slice(0,10)+".json";
-  // Download directly to the Downloads folder (no Share Sheet), then the user
-  // moves it to ~/trailgps. This is the most reliable path from a file:// page.
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=fname;
-  document.body.appendChild(a);a.click();a.remove();
-  toast("Backup downloaded — move it to your trailgps folder");
-}
-async function restoreAll(file){
-  if(!confirm("Restore will replace all current data with the backup contents. Continue?"))return;
-  toast("Restoring…");
-  const data=JSON.parse(await file.text());
-  const b64ToBlob=async s=>(await fetch(s)).blob();
-  await idbClear("waypoints");await idbClear("folders");await idbClear("meta");await idbClear("photos");await idbClear("tiles");
-  for(const f of data.folders)await idbPut("folders",f);
-  for(const w of data.waypoints)await idbPut("waypoints",w);
-  for(const m of data.meta)await idbPut("meta",m);
-  for(const p of data.photos){await idbPut("photos",{id:p.id,field:await b64ToBlob(p.field),full:p.full?await b64ToBlob(p.full):null});}
-  if(data.tiles)for(const t of data.tiles){await idbPut("tiles",{key:t.key,blob:await b64ToBlob(t.blob)});}
-  photoCache={};
-  await ensureRecent();await loadState();
-  populateFolderSelects();refreshPins();await loadBoundaryToMap();
-  toast("Restore complete");
-}
+/* Backup and restore were removed in V 1.19.
+   Backup could not build its single JSON string once the full archival set was
+   loaded — the operation died silently rather than producing a file, and the
+   limit is the browser's, not something the code can work around at this scale.
+   With no way to create a backup file, a lone Restore button could only ever
+   consume an obsolete one and would silently replace the live collection with
+   whatever stale snapshot it found — a hazard, not a safety net.
+   The archive of record is the source directory of GPX files and photographs on
+   the iMac. Recovery is: AirDrop that folder to the iPad and import it
+   (Section 8.2 of the guide), then regroup into folders. That path has been
+   walked and works. See the guide's Wish List for the folder-mapping export that
+   would make regrouping unnecessary, if it ever proves tedious enough to want. */
 
 /* ---------------- folder management ---------------- */
 function renderFolderList(){
@@ -2516,7 +2481,7 @@ async function boot(){
     renderList();
   });
 
-  $("#fabAdd").onclick=newWaypointFlow;
+  onTap($("#fabAdd"),newWaypointFlow);
   $("#fabLocate").onclick=()=>{if(lastFix){map.setView([lastFix.lat,lastFix.lon],18);}else toast("No GPS fix yet");};
   $("#fabMeasure").onclick=()=>{
     measuring=!measuring;measurePts=[];measureLayer.clearLayers();
@@ -2589,9 +2554,6 @@ async function boot(){
   $("#btnRunImport").onclick=runImport;
   $("#btnClearStaged").onclick=clearStaged;
 
-  $("#btnBackup").onclick=backupAll;
-  $("#btnRestore").onclick=()=>$("#restoreFile").click();
-  $("#restoreFile").onchange=e=>{if(e.target.files[0])restoreAll(e.target.files[0]);};
 
   $("#btnNewFolder").onclick=newFolderPrompt;
 
