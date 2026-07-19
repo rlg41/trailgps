@@ -855,7 +855,7 @@ textarea{resize:vertical;min-height:3rem;}
 .wp-row .wp-comment{flex:1;min-width:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wp-row .wp-dist{width:58px;text-align:right;font-variant-numeric:tabular-nums;color:var(--bark);font-weight:600;}
 .wp-row .wp-brg{width:28px;display:flex;justify-content:center;}
-.wp-arrow{width:18px;height:18px;stroke:var(--sky);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;transition:transform .3s;}
+.wp-arrow{width:18px;height:18px;stroke:var(--sky);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;}  /* no transform transition: an animated sweep goes the long way around when the bearing wraps past north */
 .wp-row .wp-check{width:22px;height:22px;}
 
 /* ---- modal ---- */
@@ -1011,7 +1011,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.27</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.28</div>
     </div>
   </section>
 
@@ -1123,7 +1123,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div class="subtle" id="orphanResult"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.27 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.28 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -1747,9 +1747,15 @@ try{const l=JSON.parse(localStorage.getItem("tg_compass_diag")||"[]");if(Array.i
 let harmCoef=null;        // {coef:[A,B,C,D,E],n,rms} or null (constant offset applies)
 try{const c=JSON.parse(localStorage.getItem("tg_compass_harm")||"null");if(c&&Array.isArray(c.coef)&&c.coef.length===5)harmCoef=c;}catch(e){}
 function renderCompass(){
+  // Both dials are compass-style: the needle rotates by −heading, i.e. it
+  // points toward north and counter-rotates as you turn, like a physical
+  // compass (the behavior validated against a native compass app). With the
+  // iPad pointed along the direction of travel the two needles should sit
+  // parallel — divergence between them is the device sensor's error. The
+  // numeric readouts below each dial remain the headings themselves.
   // GPS travel heading
   if(lastFix&&lastFix.heading!=null&&!isNaN(lastFix.heading)){
-    $("#gpsNeedle").style.transform="translateX(-50%) rotate("+lastFix.heading+"deg)";
+    $("#gpsNeedle").style.transform="translateX(-50%) rotate("+(-lastFix.heading)+"deg)";
     $("#gpsHeading").textContent=Math.round(lastFix.heading)+"°";
   }else{$("#gpsHeading").textContent="—";}
   if(devHeading!=null){
@@ -1766,12 +1772,14 @@ function screenAngle(){
   if(typeof window.orientation==="number")return (window.orientation<0?360+window.orientation:window.orientation);
   return 0;
 }
-// The direction the top of the iPad is currently pointing, in degrees from north.
-// Prefers the device magnetometer (works while stationary); falls back to GPS
-// course when moving and the sensor is unavailable. Returns null if neither.
+// The direction of facing, in degrees from north, for the waypoint-list arrows.
+// Prefers the GPS travel course whenever one exists (moving above the speed
+// threshold) — in the field it is accurate and stable, unlike the magnetometer.
+// The instant motion stops the course goes null and the device sensor takes
+// over; when neither is available, null.
 function currentHeading(){
-  if(devHeading!=null)return devHeading;
   if(lastFix&&lastFix.heading!=null&&!isNaN(lastFix.heading))return lastFix.heading;
+  if(devHeading!=null)return devHeading;
   return null;
 }
 // Update waypoint rows in place — distance text and arrow rotation only, no DOM
@@ -1809,14 +1817,16 @@ function updateWaypointRows(force){
 function updateWaypointArrows(){ updateWaypointRows(); }
 function onOrient(e){
   let h=null;
-  if(e.webkitCompassHeading!=null&&!isNaN(e.webkitCompassHeading)){
-    h=e.webkitCompassHeading;                       // iOS heading (already true-north referenced)
+  if(e.webkitCompassHeading!=null&&!isNaN(e.webkitCompassHeading)&&e.webkitCompassHeading>=0){
     if(e.webkitCompassAccuracy!=null)devAccuracy=e.webkitCompassAccuracy;
+    if(devAccuracy!=null&&devAccuracy<0)return;     // sensor flags its own heading invalid — keep the last good value
+    h=e.webkitCompassHeading;                       // iOS heading (already true-north referenced)
   }else if(e.absolute&&e.alpha!=null){
-    h=360-e.alpha;                                  // absolute orientation fallback
-  }else if(e.alpha!=null){
-    h=360-e.alpha;                                  // relative (least reliable)
+    h=360-e.alpha;                                  // absolute orientation fallback (non-iOS platforms)
   }
+  // No relative-alpha fallback: its zero point is arbitrary (fixed at page
+  // load, drifting with the gyro), so splicing it in during compass dropouts
+  // swung the displayed heading between two unrelated reference frames.
   if(h!=null){
     // adjust for how the device is being held (portrait/landscape)
     h=(h+screenAngle()*screenSign)%360;
@@ -1835,10 +1845,13 @@ function onOrient(e){
 }
 function startCompassListeners(){
   if(compassOn)return;
+  // One stream only: registering both events would interleave two
+  // differently-referenced feeds on any platform that fires both.
   if("ondeviceorientationabsolute" in window){
     window.addEventListener("deviceorientationabsolute",onOrient,true);
+  }else{
+    window.addEventListener("deviceorientation",onOrient,true);
   }
-  window.addEventListener("deviceorientation",onOrient,true);
   compassOn=true;
 }
 // Called when the Compass page opens. On iOS the permission prompt must come
@@ -1873,10 +1886,14 @@ async function enableCompass(){
    course is paired with the raw (pre-calibration) magnetometer heading. The
    pairs are tabulated as mean error per 30° heading bin, answering whether the
    error is a stable function of heading (correctable) or unstable (hardware).
-   F3: error(θ)=A+B·sinθ+C·cosθ+D·sin2θ+E·cos2θ fitted to the log by linear
-   least squares; coefficients persist in localStorage and are applied in
-   onOrient in place of the constant offset. The log persists across launches so
-   a diagnostic walk can be reviewed and fitted later. */
+   F3: the correction is derived robustly — a wrap-safe constant offset first,
+   with pairs more than 45° from it rejected (180°-flipped samples), then the
+   harmonic fit error(θ)=A+B·sinθ+C·cosθ+D·sin2θ+E·cos2θ on the survivors with
+   one 3σ clip. The harmonic coefficients persist in localStorage and are
+   applied in onOrient in place of the constant offset, but only when they beat
+   the plain offset by ≥3° RMS; otherwise the derived constant lands in the
+   offset box. Nothing is stored above 20° RMS residual. The log persists
+   across launches so a diagnostic walk can be reviewed and fitted later. */
 function wrap180(a){a=((a%360)+360)%360;return a>180?a-360:a;}
 function harmErrorWith(c,deg){
   const th=deg*Math.PI/180;
@@ -1885,12 +1902,20 @@ function harmErrorWith(c,deg){
 const DIAG_MAX=600;   // cap on logged pairs
 function diagPersist(){try{localStorage.setItem("tg_compass_diag",JSON.stringify(diagLog));}catch(e){}}
 // Called from onPos: log a pair when the diagnostic is on, the GPS course is
-// valid (walking above the speed threshold), and the sensor is running.
+// valid (walking above the speed threshold), the sensor is running and not
+// flagging itself uncalibrated, and the course is steady — pairs taken while
+// turning are skipped, since the GPS course lags the device through a turn.
+let _diagPrevCourse=null;
 function diagOnFix(){
   if(!diagOn)return;
-  if(!lastFix||lastFix.heading==null||isNaN(lastFix.heading))return;
+  if(!lastFix||lastFix.heading==null||isNaN(lastFix.heading)){_diagPrevCourse=null;return;}
+  const course=lastFix.heading;
+  const prevCourse=_diagPrevCourse;
+  _diagPrevCourse=course;
   if(devHeadingRaw==null)return;
-  diagLog.push({dev:Math.round(devHeadingRaw*10)/10,gps:Math.round(lastFix.heading*10)/10,t:Date.now()});
+  if(devAccuracy!=null&&devAccuracy<0)return;                          // sensor uncalibrated right now
+  if(prevCourse==null||Math.abs(wrap180(course-prevCourse))>15)return; // mid-turn transient
+  diagLog.push({dev:Math.round(devHeadingRaw*10)/10,gps:Math.round(course*10)/10,t:Date.now()});
   if(diagLog.length>DIAG_MAX)diagLog.splice(0,diagLog.length-DIAG_MAX);
   if(diagLog.length%10===0)diagPersist();   // throttle writes; also persisted on stop
   if(!$("#view-compass").classList.contains("hidden"))renderDiag();
@@ -1902,12 +1927,14 @@ function renderDiag(){
   const box=$("#diagTable");
   if(diagLog.length===0){box.innerHTML="";}
   else{
-    const bins=[];for(let i=0;i<12;i++)bins.push({sum:0,n:0});
-    diagLog.forEach(p=>{const b=Math.round(p.dev/30)%12;const e=wrap180(p.dev-p.gps);bins[b].sum+=e;bins[b].n++;});
+    // Circular mean per bin: averaging on unit vectors is wrap-safe, so a bin
+    // whose errors straddle ±180° reports the true centre, not a washed-out 0.
+    const bins=[];for(let i=0;i<12;i++)bins.push({s:0,c:0,n:0});
+    diagLog.forEach(p=>{const b=Math.round(p.dev/30)%12;const e=wrap180(p.dev-p.gps)*Math.PI/180;bins[b].s+=Math.sin(e);bins[b].c+=Math.cos(e);bins[b].n++;});
     let html='<div class="kv" style="font-weight:600"><span class="k">Heading</span><span class="v">Mean error (device − GPS)</span></div>';
     bins.forEach((b,i)=>{
       if(!b.n)return;
-      const m=b.sum/b.n;
+      const m=Math.atan2(b.s,b.c)*180/Math.PI;
       html+='<div class="kv"><span class="k">'+(i*30)+'°</span><span class="v">'+(m>=0?"+":"")+m.toFixed(1)+"° × "+b.n+"</span></div>";
     });
     box.innerHTML=html;
@@ -1933,26 +1960,72 @@ function solve5(M,V){
   }
   return A.map((r,i)=>r[5]/r[i]);
 }
-// F3: fit the harmonic model to the diagnostic log and store the coefficients.
+// F3: derive a compass correction from the diagnostic log. Robust procedure:
+//   1. Wrap-safe constant offset (circular mean of the errors), then reject
+//      pairs more than 45° from it — this removes 180°-flipped samples (e.g.
+//      taken in the other screen orientation) that plain least squares chases.
+//   2. Harmonic least squares on the survivors, then one 3σ clip and refit.
+// The harmonic coefficients are stored only when they beat the plain offset
+// by at least 3° RMS; otherwise the constant is written into the offset box,
+// where it can be seen and hand-edited. Nothing is stored when the residual
+// stays above 20° RMS — applying such a fit is worse than no calibration.
 function harmFit(){
   if(diagLog.length<30){toast("Need at least 30 logged pairs — walk with the diagnostic on first");return;}
   const covered=new Set();diagLog.forEach(p=>covered.add(Math.round(p.dev/30)%12));
   if(covered.size<4){toast("Samples cover too narrow an arc — walk more headings first");return;}
-  const M=[];for(let i=0;i<5;i++)M.push([0,0,0,0,0]);
-  const V=[0,0,0,0,0];
-  diagLog.forEach(p=>{
-    const th=p.dev*Math.PI/180;
-    const r=[1,Math.sin(th),Math.cos(th),Math.sin(2*th),Math.cos(2*th)];
-    const e=wrap180(p.dev-p.gps);
-    for(let i=0;i<5;i++){V[i]+=r[i]*e;for(let j=0;j<5;j++)M[i][j]+=r[i]*r[j];}
-  });
-  const coef=solve5(M,V);
-  if(!coef){toast("Fit failed — samples too clustered in heading");return;}
-  let sum=0;
-  diagLog.forEach(p=>{const r=wrap180(p.dev-p.gps)-harmErrorWith(coef,p.dev);sum+=r*r;});
-  harmCoef={coef,n:diagLog.length,rms:Math.sqrt(sum/diagLog.length)};
-  try{localStorage.setItem("tg_compass_harm",JSON.stringify(harmCoef));}catch(e){}
-  toast("Harmonic calibration fitted and applied");
+  const toR=Math.PI/180;
+  // stage 1: robust constant offset + outlier rejection
+  let s0=0,c0=0;
+  diagLog.forEach(p=>{const e=wrap180(p.dev-p.gps)*toR;s0+=Math.sin(e);c0+=Math.cos(e);});
+  const A0=Math.atan2(s0,c0)/toR;
+  // Continuous error representation centred on A0: keeps the rejection test,
+  // the fit target, and every residual wrap-safe even when the offset itself
+  // sits near ±180° (as a wrong landscape sign would place it).
+  const errOf=p=>A0+wrap180(wrap180(p.dev-p.gps)-A0);
+  let pairs=diagLog.filter(p=>Math.abs(errOf(p)-A0)<=45);
+  const rejected=diagLog.length-pairs.length;
+  if(pairs.length<30){toast("Only "+pairs.length+" consistent pairs after outlier rejection — walk more first");return;}
+  const rmsAbout=(list,f)=>{let q=0;list.forEach(p=>{const r=errOf(p)-f(p.dev);q+=r*r;});return Math.sqrt(q/list.length);};
+  const rmsConst=rmsAbout(pairs,()=>A0);
+  // stage 2: harmonic least squares with one 3σ clip
+  const fitOn=list=>{
+    const M=[];for(let i=0;i<5;i++)M.push([0,0,0,0,0]);
+    const V=[0,0,0,0,0];
+    list.forEach(p=>{
+      const th=p.dev*toR;
+      const r=[1,Math.sin(th),Math.cos(th),Math.sin(2*th),Math.cos(2*th)];
+      const e=errOf(p);
+      for(let i=0;i<5;i++){V[i]+=r[i]*e;for(let j=0;j<5;j++)M[i][j]+=r[i]*r[j];}
+    });
+    return solve5(M,V);
+  };
+  let coef=fitOn(pairs);
+  if(coef){
+    const sig=rmsAbout(pairs,d=>harmErrorWith(coef,d));
+    const kept=pairs.filter(p=>Math.abs(errOf(p)-harmErrorWith(coef,p.dev))<=3*sig);
+    if(kept.length>=30&&kept.length<pairs.length){const c2=fitOn(kept);if(c2){coef=c2;pairs=kept;}}
+  }
+  const rmsHarm=coef?rmsAbout(pairs,d=>harmErrorWith(coef,d)):Infinity;
+  if(Math.min(rmsConst,rmsHarm)>20){
+    toast("Residual ±"+Math.min(rmsConst,rmsHarm).toFixed(0)+"° RMS — too unstable to apply; nothing stored");
+    return;
+  }
+  const rejNote=rejected?", "+rejected+" outlier(s) rejected":"";
+  if(coef&&rmsHarm<=rmsConst-3){
+    harmCoef={coef,n:pairs.length,rms:rmsHarm};
+    try{localStorage.setItem("tg_compass_harm",JSON.stringify(harmCoef));}catch(e){}
+    toast("Harmonic calibration applied — residual ±"+rmsHarm.toFixed(1)+"° from "+pairs.length+" pairs"+rejNote);
+  }else{
+    // Heading-dependent terms add nothing meaningful: apply the constant.
+    // error = dev − gps and corrected = dev + offset, so offset = −A0.
+    // (Mirrors the persistence in boot()'s setOffset for the same state.)
+    harmCoef=null;
+    try{localStorage.removeItem("tg_compass_harm");}catch(e){}
+    compassOffset=Math.round(-A0*10)/10;
+    $("#compassOffset").value=compassOffset;
+    try{localStorage.setItem("tg_compass_offset",String(compassOffset));}catch(e){}
+    toast("Constant offset "+(compassOffset>=0?"+":"")+compassOffset+"° applied — residual ±"+rmsConst.toFixed(1)+"°"+rejNote);
+  }
   renderDiag();renderCompass();updateWaypointArrows();
 }
 
