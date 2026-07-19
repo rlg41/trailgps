@@ -959,6 +959,7 @@ textarea{resize:vertical;min-height:3rem;}
     <div class="view-inner">
       <h2>Waypoints</h2>
       <select id="listFolderSelect" style="margin-bottom:.6rem"></select>
+      <input type="text" id="listSearch" placeholder="Search name or comment" autocomplete="off" style="margin-bottom:.6rem"><!-- W3 -->
       <div class="seg" id="sortSeg">
         <button data-sort="alpha" class="active">Name</button>
         <button data-sort="proximity">Nearest</button>
@@ -966,6 +967,7 @@ textarea{resize:vertical;min-height:3rem;}
       <div id="editControls" class="row" style="margin-bottom:.4rem">
         <button class="btn secondary" id="btnEditMode"><svg viewBox="0 0 24 24"><path d="M11 4H4v16h16v-7"/><path d="M18.5 2.5a2.1 2.1 0 013 3L12 15l-4 1 1-4z"/></svg>Select</button>
         <button class="btn secondary" id="btnUpdateDir"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Update directions</button>
+        <button class="btn secondary" id="btnNewAtCoords"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>New at coordinates</button><!-- W4 -->
       </div>
       <div id="editActions" class="stack hidden" style="margin-bottom:.4rem">
         <div class="subtle"><span id="selCount">0</span> selected</div>
@@ -1011,7 +1013,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.29</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.30</div>
     </div>
   </section>
 
@@ -1109,6 +1111,13 @@ textarea{resize:vertical;min-height:3rem;}
         <div class="subtle" id="importResult"></div>
       </div>
 
+      <h3>Export</h3><!-- H6 -->
+      <div class="card stack">
+        <div class="subtle">Email address pre-filled by Export's download fallback (the Share Sheet path doesn't use it). Stored only on this device — the published file carries no address.</div>
+        <div class="field-label">Export email</div>
+        <input type="text" id="exportEmailField" inputmode="email" autocomplete="off" placeholder="not set">
+      </div>
+
       <h3>Folders</h3>
       <div class="card stack">
         <button class="btn secondary" id="btnNewFolder"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/><path d="M12 12v4M10 14h4"/></svg>New folder</button>
@@ -1123,7 +1132,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div class="subtle" id="orphanResult"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.29 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.30 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -1155,10 +1164,11 @@ textarea{resize:vertical;min-height:3rem;}
 "use strict";
 
 /* ---------------- user configuration ---------------- */
-/* X2: the one personalization point in this file — the address the export
-   fallback pre-fills into its mailto: link (guide §6.8). The Share Sheet path
-   does not use it. */
-const EXPORT_EMAIL = "Ronald.gilliland@gmail.com";
+/* X2/H6: the export fallback's mailto address is the one personalization
+   point (guide §6.8). Since V 1.30 it is no longer written into this
+   (publicly hosted) file: set it once on the device in Setup → Export, and it
+   is kept in localStorage. The Share Sheet path does not use it. */
+function exportEmail(){try{return (localStorage.getItem("tg_export_email")||"").trim();}catch(e){return "";}}
 
 /* ---------------- IndexedDB layer ---------------- */
 const DB_NAME = "trailgps", DB_VER = 1;
@@ -1420,6 +1430,9 @@ function parseKmlBoundary(text){
 
 /* ---------------- map ---------------- */
 const TILE_URL="https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+// H4: one margin for both the cached region (cacheBox) and the write-through
+// region (getWriteThroughBox) — a change here moves both together.
+const CACHE_MARGIN=0.12;
 function tileKey(z,x,y){return z+"/"+x+"/"+y;}
 
 // Custom tile layer that reads from IndexedDB first, network second.
@@ -1440,7 +1453,7 @@ function getWriteThroughBox(){
           if(la<minLat)minLat=la; if(la>maxLat)maxLat=la;
           if(lo<minLon)minLon=lo; if(lo>maxLon)maxLon=lo;
         }));
-        const mLat=(maxLat-minLat)*0.12, mLon=(maxLon-minLon)*0.12;
+        const mLat=(maxLat-minLat)*CACHE_MARGIN, mLon=(maxLon-minLon)*CACHE_MARGIN;
         _wtBox={north:maxLat+mLat,south:minLat-mLat,west:minLon-mLon,east:maxLon+mLon};
       }else{_wtBox=false;}
       return _wtBox;
@@ -2042,6 +2055,10 @@ let listLimit = LIST_PAGE;
 function renderList(){
   const sel=$("#listFolderSelect").value||"__all__";
   let list=(sel==="__all__"?waypoints:waypoints.filter(w=>w.folderId===sel)).slice();
+  // W3: name search, AND-composed with the folder selector; case-insensitive
+  // on name and comment. Show-more paging below applies to the filtered set.
+  const q=(($("#listSearch")&&$("#listSearch").value)||"").trim().toLowerCase();
+  if(q)list=list.filter(w=>w.name.toLowerCase().includes(q)||(w.comment||"").toLowerCase().includes(q));
   const here=lastFix?[lastFix.lat,lastFix.lon]:null;
   // precompute distance/bearing when we have a fix
   list.forEach(w=>{
@@ -2057,7 +2074,7 @@ function renderList(){
 
   const box=$("#wpList");box.innerHTML="";
   if(total===0){
-    box.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24"><path d="M12 2a8 8 0 00-8 8c0 5 8 12 8 12s8-7 8-12a8 8 0 00-8-8z"/><circle cx="12" cy="10" r="3"/></svg><div>No waypoints here yet.</div></div>';
+    box.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24"><path d="M12 2a8 8 0 00-8 8c0 5 8 12 8 12s8-7 8-12a8 8 0 00-8-8z"/><circle cx="12" cy="10" r="3"/></svg><div>'+(q?"No waypoints match.":"No waypoints here yet.")+'</div></div>';
     updateListNotice(0,0);
     return;
   }
@@ -2168,11 +2185,13 @@ async function openWaypoint(id){
         root.querySelector("#wpPhotoInput").click();
       },250);
     });
+    let previewUrl=null;   // H3: preview object URLs are revoked on replacement and on save
     root.querySelector("#wpPhotoInput").onchange=e=>{
       newPhoto=e.target.files&&e.target.files[0]?e.target.files[0]:null;
       if(newPhoto){
         try{
-          const u=URL.createObjectURL(newPhoto);
+          if(previewUrl)URL.revokeObjectURL(previewUrl);
+          const u=URL.createObjectURL(newPhoto);previewUrl=u;
           const pv=root.querySelector("#wpPhoto");
           pv.src=u;pv.classList.remove("hidden");
           root.querySelector("#wpNoPhoto").classList.add("hidden");
@@ -2187,27 +2206,32 @@ async function openWaypoint(id){
       // duplicate check excludes this waypoint itself
       if(waypoints.some(x=>x.id!==w.id&&x.name.toLowerCase()===nm.toLowerCase())){warn.classList.remove("hidden");return;}
       const btn=root.querySelector('[data-act="save"]');
+      const btnHtml=btn.innerHTML;   // H2: restore the button with its icon on failure
       btn.disabled=true;btn.textContent="Saving…";
       try{
-        w.name=nm;
-        w.comment=commentI.value.trim();
+        // H2: stage the edits and write them to disk first; the in-memory
+        // record is updated only after the transaction commits, so a failed
+        // save can no longer leave the list showing a name the DB doesn't hold.
+        const staged={...w,name:nm,comment:commentI.value.trim()};
         if(newPhoto){
           let field=newPhoto;
           try{ field=await downscale(newPhoto); }catch(e){ field=newPhoto; }
-          w.hasPhoto=true;
+          staged.hasPhoto=true;
           await idbTxWaypointsPhotos((wps,phs)=>{
             phs.put({id:w.id,field,full:newPhoto});   // replaces existing record
-            wps.put(w);
+            wps.put(staged);
           });
           if(photoCache[w.id])dropPhotoCache(w.id);   // T1: keep the LRU order list consistent
         }else{
-          await idbPut("waypoints",w);
+          await idbPut("waypoints",staged);
         }
+        Object.assign(w,staged);
+        if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=null;}   // H3
         refreshPins();renderList();
         closeModal();
         toast("Waypoint updated");
       }catch(err){
-        btn.disabled=false;btn.textContent="Save Changes";
+        btn.disabled=false;btn.innerHTML=btnHtml;
         toast("Save failed: "+(err&&err.message?err.message:"unknown error"));
       }
     });
@@ -2372,6 +2396,81 @@ async function saveNewWaypoint(fix,name,comment,photoFile){
   if(!$("#view-list").classList.contains("hidden"))renderList();
 }
 
+/* ---------------- new waypoint at typed coordinates (W4) ---------------- */
+// Accepts the archival ddd.mm.mmm form — degrees, whole minutes, then the
+// fractional minutes as typed after the second dot (40.36.208 = 40° 36.208′) —
+// and, tolerantly, plain decimal degrees (40.608712). The sign carries as
+// typed; west longitudes are negative. Returns decimal degrees, or null.
+function parseCoordEntry(str){
+  const s=(str||"").trim();
+  let m=s.match(/^([+-]?)(\d{1,3})\.(\d{1,2})\.(\d{1,3})$/);
+  if(m){
+    const sign=m[1]==="-"?-1:1;
+    const deg=parseInt(m[2],10);
+    const min=parseInt(m[3],10)+parseFloat("0."+m[4]);
+    if(min>=60)return null;
+    return sign*(deg+min/60);
+  }
+  m=s.match(/^[+-]?\d{1,3}(\.\d+)?$/);
+  if(m)return parseFloat(s);
+  return null;
+}
+// W4: desk-work entry path — creates a waypoint at typed coordinates with no
+// photo, through the same saveNewWaypoint path as field creation. Also makes
+// waypoint creation testable on iMac Safari, which has no GPS.
+function newAtCoordsFlow(){
+  const body=`
+    <div class="grip"></div>
+    <h3>New waypoint at coordinates</h3>
+    <div class="subtle" style="margin-bottom:.6rem">Enter the archival form ddd.mm.mmm (degrees, minutes, fractional minutes — e.g. 40.36.208) or decimal degrees. West longitudes are negative.</div>
+    <div class="field-label">Latitude</div>
+    <input type="text" id="ncLat" autocomplete="off" placeholder="40.36.208">
+    <div class="field-label" style="margin-top:.7rem">Longitude</div>
+    <input type="text" id="ncLon" autocomplete="off" placeholder="-78.02.426">
+    <div class="warn-text hidden" id="ncCoordWarn">Coordinates could not be read — check the format and range.</div>
+    <div class="field-label" style="margin-top:.7rem">Name</div>
+    <input type="text" id="ncName" autocomplete="off">
+    <div class="warn-text hidden" id="ncWarn">That name is already in use.</div>
+    <div class="field-label" style="margin-top:.7rem">Comment (max 64)</div>
+    <textarea id="ncComment" maxlength="64">${fmtDateTime(new Date())} </textarea>
+    <div class="char-count"><span id="ncCount">0</span>/64</div>
+    <div class="row" style="margin-top:.9rem">
+      <button type="button" class="btn ghost" id="ncCancel">Cancel</button>
+      <button type="button" class="btn" id="ncSave"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>Save Waypoint</button>
+    </div>`;
+  showModal(body,(root)=>{
+    const latI=root.querySelector("#ncLat"),lonI=root.querySelector("#ncLon");
+    const coordWarn=root.querySelector("#ncCoordWarn");
+    const nameI=root.querySelector("#ncName"),warn=root.querySelector("#ncWarn");
+    const comment=root.querySelector("#ncComment"),count=root.querySelector("#ncCount");
+    count.textContent=comment.value.length;
+    comment.oninput=()=>count.textContent=comment.value.length;
+    latI.oninput=lonI.oninput=()=>coordWarn.classList.add("hidden");
+    const existingNames=new Set(waypoints.map(w=>w.name.toLowerCase()));
+    nameI.oninput=()=>{
+      const v=nameI.value.trim().toLowerCase();
+      warn.classList.toggle("hidden",!v||!existingNames.has(v));
+    };
+    onTap(root.querySelector("#ncCancel"),closeModal);
+    onTap(root.querySelector("#ncSave"),async()=>{
+      const lat=parseCoordEntry(latI.value),lon=parseCoordEntry(lonI.value);
+      if(lat==null||lon==null||Math.abs(lat)>90||Math.abs(lon)>180){coordWarn.classList.remove("hidden");return;}
+      const name=nameI.value.trim()||("ab."+fracMinutes3(lat)+"."+fracMinutes3(lon));
+      if(waypoints.some(w=>w.name.toLowerCase()===name.toLowerCase())){warn.classList.remove("hidden");return;}
+      const saveBtn=root.querySelector("#ncSave");
+      const saveHtml=saveBtn.innerHTML;
+      saveBtn.disabled=true;saveBtn.textContent="Saving…";
+      try{
+        await saveNewWaypoint({lat,lon,ele:null,acc:null},name,comment.value.trim(),null);
+        closeModal();
+      }catch(err){
+        saveBtn.disabled=false;saveBtn.innerHTML=saveHtml;
+        toast("Save failed: "+(err&&err.message?err.message:"unknown error"));
+      }
+    });
+  });
+}
+
 /* ---------------- export waypoint ---------------- */
 function buildGpx(w){
   const esc=s=>(s||"").replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
@@ -2405,12 +2504,19 @@ async function exportWaypoint(id){
   const GAP=800;
   files.forEach((f,i)=>{
     setTimeout(()=>{
-      const a=document.createElement("a");a.href=URL.createObjectURL(f);a.download=f.name;a.click();
+      const u=URL.createObjectURL(f);   // H3: revoke once the download has had time to start
+      const a=document.createElement("a");a.href=u;a.download=f.name;a.click();
+      setTimeout(()=>URL.revokeObjectURL(u),60000);
     },i*GAP);
   });
-  const mail="mailto:"+EXPORT_EMAIL+"?subject="+encodeURIComponent(w.name);
-  toast("Files downloaded — attach to email"+(fieldOnly?" (field-resolution photo)":""));
-  setTimeout(()=>{location.href=mail;},files.length*GAP+600);
+  // H6: the address comes from Setup → Export (this device only); with none
+  // set, the downloads still run and the mail step is simply skipped.
+  const addr=exportEmail();
+  toast("Files downloaded — attach to email"+(fieldOnly?" (field-resolution photo)":"")+(addr?"":" (no export email set — see Setup)"));
+  if(addr){
+    const mail="mailto:"+addr+"?subject="+encodeURIComponent(w.name);
+    setTimeout(()=>{location.href=mail;},files.length*GAP+600);
+  }
 }
 
 /* ---------------- import ---------------- */
@@ -2522,8 +2628,8 @@ async function runImport(){
 let cacheCancel=false;
 
 // Probe which zoom levels the imagery server (Esri) actually serves for the property centre.
-// Loads a test tile via Image() (avoids CORS issues that fetch may hit) and
-// reports OK / failed per zoom, so we cache only levels that truly exist.
+// H1: probe tiles load with crossOrigin="anonymous", the same way caching
+// loads them, so a zoom the probe reports as available is one caching can use.
 async function probeZooms(){
   if(!navigator.onLine){   // O1: offline probing would misreport every zoom as unavailable
     $("#probeStatus").textContent="No network connection — connect, then test zoom levels again.";
@@ -2549,6 +2655,7 @@ async function probeZooms(){
     const url=TILE_URL.replace("{z}",z).replace("{y}",y).replace("{x}",x);
     const ok=await new Promise(resolve=>{
       const img=new Image();
+      img.crossOrigin="anonymous";   // H1: match the caching path's CORS mode
       const t=setTimeout(()=>{resolve(false);},9000);
       img.onload=()=>{clearTimeout(t);resolve(img.naturalWidth>1);};
       img.onerror=()=>{clearTimeout(t);resolve(false);};
@@ -2629,7 +2736,7 @@ async function cacheBox(){
       if(la<minLat)minLat=la; if(la>maxLat)maxLat=la;
       if(lo<minLon)minLon=lo; if(lo>maxLon)maxLon=lo;
     }));
-    const mLat=(maxLat-minLat)*0.12, mLon=(maxLon-minLon)*0.12;
+    const mLat=(maxLat-minLat)*CACHE_MARGIN, mLon=(maxLon-minLon)*CACHE_MARGIN;
     return {north:maxLat+mLat,south:minLat-mLat,west:minLon-mLon,east:maxLon+mLon,source:"boundary"};
   }
   const b=map.getBounds();
@@ -2643,9 +2750,11 @@ function fetchWithTimeout(url,ms){
     fetch(url,{signal:ctl.signal,mode:"cors"}).then(r=>{clearTimeout(t);res(r);}).catch(e=>{clearTimeout(t);rej(e);});
   });
 }
-// Load a tile as an image and convert to a Blob via canvas. This works even
-// when the server lacks CORS headers for fetch(), as long as the image itself
-// loads. Returns: Blob (ok) | null (no tile / 404) | undefined (failed/offline).
+// Load a tile as an image (crossOrigin="anonymous") and convert to a Blob via
+// canvas. H1: because crossOrigin is set, the server must send CORS headers
+// (Esri does) — a CORS-less server fails at image load, resolving undefined;
+// the tainted-canvas catch below is only a safety net.
+// Returns: Blob (ok) | null (no tile / 404) | undefined (failed/offline).
 // O1: an error while offline is retryable, not "tile absent".
 function loadTileBlob(url){
   return new Promise(resolve=>{
@@ -2850,7 +2959,20 @@ async function orphanSweep(){
    the iMac. Recovery is: AirDrop that folder to the iPad and import it
    (Section 8.2 of the guide), then regroup into folders. That path has been
    walked and works. See the guide's Wish List for the folder-mapping export that
-   would make regrouping unnecessary, if it ever proves tedious enough to want. */
+   would make regrouping unnecessary, if it ever proves tedious enough to want.
+
+   V 1.30 disposition (gap study, W2) — recorded so the question stays settled:
+   the export-not-backup reframing was examined and whole-database export and
+   cached-tile export were CONSIDERED AND DECLINED. Renaming the operation
+   removes the restore-machinery half of the V 1.21 infeasibility (import is
+   the restore path, and D1's dedup makes re-import safe) but not the payload
+   half: assembling 100+ MB in a Safari tab, for data that is either mastered
+   on the iMac or refetchable from Esri in minutes, is memory-pressure risk
+   for negative value — and tile export would quietly reintroduce a tile
+   restore path. A scoped "export the Recently Added folder as a ZIP" was
+   found feasible but was also declined for now, as was including the
+   boundary KML. Protection instruments remain: persist() + refetchability
+   for tiles, and the iMac masters + import for waypoints. */
 
 /* ---------------- folder management ---------------- */
 function renderFolderList(){
@@ -3125,6 +3247,7 @@ async function boot(){
 
   $("#mapFolderSelect").onchange=e=>{currentMapFolder=e.target.value;refreshPins();};
   $("#listFolderSelect").onchange=()=>{listLimit=LIST_PAGE;renderList();};
+  $("#listSearch").oninput=()=>{listLimit=LIST_PAGE;renderList();};   // W3: filter as you type, paging restarts
   $$("#sortSeg button").forEach(b=>b.onclick=()=>{
     listSort=b.dataset.sort;
     listLimit=LIST_PAGE;
@@ -3134,6 +3257,7 @@ async function boot(){
   });
 
   onTap($("#fabAdd"),newWaypointFlow);
+  onTap($("#btnNewAtCoords"),newAtCoordsFlow);   // W4
   $("#fabLocate").onclick=()=>{if(lastFix){map.setView([lastFix.lat,lastFix.lon],18);}else toast("No GPS fix yet");};
   $("#fabMeasure").onclick=()=>{
     measuring=!measuring;measurePts=[];measureLayer.clearLayers();
@@ -3200,7 +3324,9 @@ async function boot(){
   // folder filter), which is what makes bulk folder moves practical.
   $("#btnSelectAll").onclick=()=>{
     const sel=$("#listFolderSelect").value||"__all__";
-    const list=(sel==="__all__"?waypoints:waypoints.filter(w=>w.folderId===sel));
+    let list=(sel==="__all__"?waypoints:waypoints.filter(w=>w.folderId===sel));
+    const q=(($("#listSearch")&&$("#listSearch").value)||"").trim().toLowerCase();   // W3: respect the search filter too
+    if(q)list=list.filter(w=>w.name.toLowerCase().includes(q)||(w.comment||"").toLowerCase().includes(q));
     list.forEach(w=>selected.add(w.id));
     $("#selCount").textContent=selected.size;
     renderList();
@@ -3229,6 +3355,17 @@ async function boot(){
   $("#btnRunImport").onclick=runImport;
   $("#btnClearStaged").onclick=clearStaged;
 
+
+  // H6: the export email lives in localStorage on this device only
+  $("#exportEmailField").value=exportEmail();
+  $("#exportEmailField").onchange=e=>{
+    const v=e.target.value.trim();
+    try{
+      if(v)localStorage.setItem("tg_export_email",v);
+      else localStorage.removeItem("tg_export_email");
+    }catch(err){}
+    toast(v?"Export email saved on this device":"Export email cleared");
+  };
 
   $("#btnNewFolder").onclick=newFolderPrompt;
   $("#btnOrphanSweep").onclick=orphanSweep;
