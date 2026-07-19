@@ -688,7 +688,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 html,body{margin:0;height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--paper);}
-body{display:flex;flex-direction:column;position:fixed;inset:0;}
+/* T4: Safari ignores the viewport meta's user-scalable=no for double-tap zoom;
+   manipulation (pan + pinch allowed, double-tap zoom off) at the body level
+   covers every descendant, and the map keeps its own Leaflet touch-action. */
+body{display:flex;flex-direction:column;position:fixed;inset:0;touch-action:manipulation;}
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;font-size:1rem;}
 .hidden{display:none !important;}
 
@@ -719,7 +722,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 
 /* ---- view container ---- */
 #views{flex:1 1 auto;position:relative;overflow:hidden;}
-.view{position:absolute;inset:0;overflow:auto;-webkit-overflow-scrolling:touch;}
+.view{position:absolute;inset:0;overflow:auto;-webkit-overflow-scrolling:touch;touch-action:manipulation;}
 #map{position:absolute;inset:0;background:#dfe0d5;}
 
 /* left-edge vertical navigation: circular icons over the image, bottom half */
@@ -751,6 +754,16 @@ body.modal-open #nav{display:none;}
 .map-fab.on svg{stroke:#fff;}
 #fabLocate{top:5rem;}
 #fabMeasure{top:9.5rem;}
+
+/* T3: Leaflet's zoom buttons ship at 30 px (26 px non-touch) — below the app's
+   44 px touch standard. Override here in the app stylesheet (the inlined
+   library CSS stays untouched); selectors mirror the library's touch rule so
+   source order settles the tie. */
+.leaflet-control-zoom a,
+.leaflet-touch .leaflet-control-zoom-in,
+.leaflet-touch .leaflet-control-zoom-out{
+  width:var(--tap);height:var(--tap);line-height:var(--tap);
+}
 
 #measureReadout{
   position:absolute;left:4rem;bottom:1rem;z-index:500;background:var(--panel);
@@ -837,7 +850,7 @@ textarea{resize:vertical;min-height:3rem;}
 .wp-head span:nth-child(2){flex:1;}
 .wp-head span:nth-child(3){width:58px;text-align:right;}
 .wp-head span:nth-child(4){width:28px;text-align:center;}
-.wp-row{display:flex;align-items:center;gap:.5rem;padding:.28rem 0;border-bottom:1px solid #e4e7dc;font-size:.82rem;}
+.wp-row{display:flex;align-items:center;gap:.5rem;padding:.28rem 0;min-height:var(--tap);border-bottom:1px solid #e4e7dc;font-size:.82rem;}   /* T2: min-height reaches the --tap standard */
 .wp-row .wp-name2{flex:0 0 18%;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wp-row .wp-comment{flex:1;min-width:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .wp-row .wp-dist{width:58px;text-align:right;font-variant-numeric:tabular-nums;color:var(--bark);font-weight:600;}
@@ -989,12 +1002,16 @@ textarea{resize:vertical;min-height:3rem;}
         <div class="card"><div class="field-label">Heading</div><div class="big-num" id="stHdg">—</div><div class="subtle">course</div></div>
       </div>
       <div class="card">
+        <div class="field-label">Observed scatter</div><div class="big-num" id="stScatter">—</div>
+        <div class="subtle">RMS wander of the fix over the last 30 s while standing still. This measures precision (repeatability), not accuracy — a systematic offset would not show here. Blank while moving.</div>
+      </div>
+      <div class="card">
         <div class="kv"><span class="k">Fix time</span><span class="v" id="stTime">—</span></div>
         <div class="kv" style="border:none"><span class="k">Updates</span><span class="v" id="stLive">—</span></div>
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.21</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.27</div>
     </div>
   </section>
 
@@ -1027,6 +1044,19 @@ textarea{resize:vertical;min-height:3rem;}
           <button class="btn secondary" id="offPlus" style="width:auto;padding:0 1.1rem;font-size:1.3rem">+</button>
         </div>
         <button class="btn secondary" id="btnFlipScreen" style="margin-top:.5rem">Flip landscape sign</button>
+      </div>
+      <div class="card stack" style="margin-top:.6rem">
+        <div class="field-label">Compass diagnostic</div>
+        <div class="subtle">Turn the diagnostic on and walk a loop covering all directions. It logs the device compass against the GPS travel course and tabulates the error by heading. A stable, repeatable pattern can be corrected with the fit below; an unstable one points to the hardware rather than calibration.</div>
+        <button class="btn secondary" id="btnDiagToggle">Start diagnostic</button>
+        <div class="subtle" id="diagStatus"></div>
+        <div id="diagTable"></div>
+        <div class="row" style="margin-top:.4rem">
+          <button class="btn secondary" id="btnHarmFit">Fit calibration</button>
+          <button class="btn ghost" id="btnHarmClear">Clear calibration</button>
+        </div>
+        <button class="btn ghost" id="btnDiagClear">Clear diagnostic log</button>
+        <div class="subtle" id="harmStatus"></div>
       </div>
     </div>
   </section>
@@ -1085,7 +1115,15 @@ textarea{resize:vertical;min-height:3rem;}
         <div id="folderList"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.21 · runs entirely on this device</div>
+      <h3>Storage</h3>
+      <div class="card stack">
+        <div class="kv"><span class="k">Used on this device</span><span class="v" id="storUsed">—</span></div>
+        <div class="kv" style="border:none"><span class="k">Available to the app</span><span class="v" id="storQuota">—</span></div>
+        <button class="btn secondary" id="btnOrphanSweep">Check for orphaned photos</button>
+        <div class="subtle" id="orphanResult"></div>
+      </div>
+
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.27 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -1116,6 +1154,12 @@ textarea{resize:vertical;min-height:3rem;}
    ============================================================ */
 "use strict";
 
+/* ---------------- user configuration ---------------- */
+/* X2: the one personalization point in this file — the address the export
+   fallback pre-fills into its mailto: link (guide §6.8). The Share Sheet path
+   does not use it. */
+const EXPORT_EMAIL = "Ronald.gilliland@gmail.com";
+
 /* ---------------- IndexedDB layer ---------------- */
 const DB_NAME = "trailgps", DB_VER = 1;
 let db = null;
@@ -1131,22 +1175,65 @@ function openDB(){
       if(!d.objectStoreNames.contains("tiles"))     d.createObjectStore("tiles",{keyPath:"key"}); // key = z/x/y
       if(!d.objectStoreNames.contains("meta"))      d.createObjectStore("meta",{keyPath:"key"});
     };
-    rq.onsuccess = ()=>{db=rq.result;res(db);};
+    rq.onblocked = ()=>{toast("Close other Trail GPS tabs, then reload");};   // S6
+    rq.onsuccess = ()=>{
+      db=rq.result;
+      /* S6: another instance is upgrading the database — release this
+         connection and ask for a reload rather than blocking it. */
+      db.onversionchange = ()=>{
+        try{db.close();}catch(e){}
+        showFatalError("Trail GPS was updated in another tab",
+          "This tab's connection to storage was closed so the update could proceed. Reload to continue.");
+      };
+      res(db);
+    };
     rq.onerror   = ()=>rej(rq.error);
   });
 }
-function tx(store,mode="readonly"){return db.transaction(store,mode).objectStore(store);}
-function idbGet(store,key){return new Promise((res,rej)=>{const r=tx(store).get(key);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
-function idbAll(store){return new Promise((res,rej)=>{const r=tx(store).getAll();r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error);});}
-function idbPut(store,val){return new Promise((res,rej)=>{const r=tx(store,"readwrite").put(val);r.onsuccess=()=>res();r.onerror=()=>rej(r.error);});}
-function idbDel(store,key){return new Promise((res,rej)=>{const r=tx(store,"readwrite").delete(key);r.onsuccess=()=>res();r.onerror=()=>rej(r.error);});}
-function idbClear(store){return new Promise((res,rej)=>{const r=tx(store,"readwrite").clear();r.onsuccess=()=>res();r.onerror=()=>rej(r.error);});}
+/* S5: Safari's cold-start open can hang silently and private browsing rejects.
+   Race the open against a 2 s timeout, retry once, and let boot() show a
+   persistent explanation on final failure instead of a dead page. */
+function openDBWithRetry(){
+  const attempt=()=>Promise.race([
+    openDB(),
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error("storage open timed out")),2000))
+  ]);
+  return attempt().catch(()=>attempt());
+}
+/* S5: persistent full-screen failure notice for cases where a transient toast
+   would leave an unexplained inert page. */
+function showFatalError(title,detail){
+  let d=document.getElementById("fatalError");
+  if(!d){
+    d=document.createElement("div");
+    d.id="fatalError";
+    d.style.cssText="position:fixed;inset:0;z-index:9999;background:var(--paper,#fff);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem;gap:.9rem";
+    document.body.appendChild(d);
+  }
+  d.innerHTML='<h2 style="margin:0">'+escapeHtml(title)+'</h2>'+
+    '<div style="max-width:34rem;color:var(--muted,#666)">'+escapeHtml(detail)+'</div>'+
+    '<button class="btn" style="width:auto;padding:.7rem 1.6rem" onclick="location.reload()">Reload</button>';
+}
+/* S3: helpers resolve on tx.oncomplete (durable commit), not request.onsuccess,
+   which can fire before Safari has actually persisted the write. */
+function idbGet(store,key){return new Promise((res,rej)=>{const t=db.transaction(store);let out;const r=t.objectStore(store).get(key);r.onsuccess=()=>{out=r.result;};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error||new Error("transaction aborted"));});}
+function idbAll(store){return new Promise((res,rej)=>{const t=db.transaction(store);let out;const r=t.objectStore(store).getAll();r.onsuccess=()=>{out=r.result||[];};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error||new Error("transaction aborted"));});}
+function idbAllKeys(store){return new Promise((res,rej)=>{const t=db.transaction(store);let out;const r=t.objectStore(store).getAllKeys();r.onsuccess=()=>{out=r.result||[];};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error||new Error("transaction aborted"));});}
+function idbPut(store,val){return new Promise((res,rej)=>{const t=db.transaction(store,"readwrite");t.objectStore(store).put(val);t.oncomplete=()=>res();t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error||new Error("transaction aborted"));});}
+function idbDel(store,key){return new Promise((res,rej)=>{const t=db.transaction(store,"readwrite");t.objectStore(store).delete(key);t.oncomplete=()=>res();t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error||new Error("transaction aborted"));});}
+function idbClear(store){return new Promise((res,rej)=>{const t=db.transaction(store,"readwrite");t.objectStore(store).clear();t.oncomplete=()=>res();t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error||new Error("transaction aborted"));});}
+/* D2: one readwrite transaction spanning waypoints+photos so a waypoint and its
+   photo commit (or fail) together. Safari: fn must issue all requests
+   synchronously — no await inside; downscale photos BEFORE calling. */
+function idbTxWaypointsPhotos(fn){return new Promise((res,rej)=>{const t=db.transaction(["waypoints","photos"],"readwrite");fn(t.objectStore("waypoints"),t.objectStore("photos"));t.oncomplete=()=>res();t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error||new Error("transaction aborted"));});}
 
 /* ---------------- App state ---------------- */
 const RECENT = "recently-added";
 let folders = [];      // {id,name,permanent}
 let waypoints = [];    // {id,name,lat,lon,ele,comment,folderId,created,hasPhoto}
-let photoCache = {};   // id -> objectURL (field-res), lazily built
+let photoCache = {};   // id -> objectURL (field-res), small LRU — see getPhotoURL (T1)
+let photoCacheOrder = [];   // T1: cache keys, least-recently-used first
+const PHOTO_CACHE_MAX = 10; // T1: object URLs pin their blobs; cap the session's footprint
 let map, meLayer, boundaryLayer, pinLayer, measureLayer;
 let lastFix = null;    // {lat,lon,ele,acc,heading,speed,time}
 let watchId = null;
@@ -1164,13 +1251,29 @@ let measuring = false, measurePts = [];
 /* ---------------- utilities ---------------- */
 const $ = s=>document.querySelector(s);
 const $$ = s=>Array.from(document.querySelectorAll(s));
-function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function uid(){return crypto.randomUUID();}
 function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),2600);}
+/* D6: keep the screen on during long runs (import, tile caching). Safari 16.4+;
+   best-effort — a denied or unsupported request never blocks the run. */
+let _wakeLock=null,_wakeWanted=false;
+async function acquireWakeLock(){
+  _wakeWanted=true;
+  if(!("wakeLock" in navigator))return;
+  try{_wakeLock=await navigator.wakeLock.request("screen");}catch(e){_wakeLock=null;}
+}
+function releaseWakeLock(){
+  _wakeWanted=false;
+  if(_wakeLock){try{_wakeLock.release();}catch(e){}_wakeLock=null;}
+}
+document.addEventListener("visibilitychange",()=>{
+  if(_wakeWanted&&document.visibilityState==="visible")acquireWakeLock();
+});
 function fmtCoord(v,pos,neg){
   const h=v>=0?pos:neg;const a=Math.abs(v);
-  const deg=Math.floor(a);
-  const min=(a-deg)*60;
-  return deg+"° "+min.toFixed(4)+"′ "+h;
+  let deg=Math.floor(a);
+  let min=((a-deg)*60).toFixed(4);
+  if(parseFloat(min)>=60){deg+=1;min=(0).toFixed(4);}   // carry: 40° 60.0000′ → 41° 0.0000′
+  return deg+"° "+min+"′ "+h;
 }
 function metersToFeet(m){return m*3.28084;}
 function pad(n){return n<10?"0"+n:n;}
@@ -1187,7 +1290,7 @@ function fracMinutes3(coord){
   const deg=Math.floor(a);
   const min=(a-deg)*60;
   const frac=min-Math.floor(min);           // 0..1
-  return String(Math.round(frac*1000)).padStart(3,"0").slice(0,3);
+  return String(Math.round(frac*1000)%1000).padStart(3,"0");
 }
 function rootFromParts(prefix,lat,lon){return prefix+"."+fracMinutes3(lat)+"."+fracMinutes3(lon);}
 function normRoot(fnameNoExt){return fnameNoExt.replace(/\./g,"").toLowerCase();} // ab.123.456 & ab123456 → ab123456
@@ -1206,12 +1309,32 @@ async function loadState(){
 function folderName(id){const f=folders.find(x=>x.id===id);return f?f.name:"—";}
 
 /* ---------------- photos ---------------- */
+/* T1: every URL.createObjectURL pins its blob for the session; on long field
+   days that reached Safari's tab memory ceiling and caused silent reloads.
+   The cache is now a small LRU: the ~10 most recent photos stay warm, older
+   URLs are revoked as new ones come in. Only the open modal displays a photo,
+   so an evicted URL is never one currently on screen. */
+function dropPhotoCache(id){
+  if(photoCache[id]){URL.revokeObjectURL(photoCache[id]);delete photoCache[id];}
+  const i=photoCacheOrder.indexOf(id);
+  if(i>=0)photoCacheOrder.splice(i,1);
+}
 async function getPhotoURL(wpId){
-  if(photoCache[wpId]) return photoCache[wpId];
+  if(photoCache[wpId]){
+    const i=photoCacheOrder.indexOf(wpId);          // refresh recency
+    if(i>=0)photoCacheOrder.splice(i,1);
+    photoCacheOrder.push(wpId);
+    return photoCache[wpId];
+  }
   const rec = await idbGet("photos",wpId);
   if(!rec) return null;
   const url = URL.createObjectURL(rec.field);   // field-res blob
-  photoCache[wpId]=url; return url;
+  photoCache[wpId]=url;
+  photoCacheOrder.push(wpId);
+  while(photoCacheOrder.length>PHOTO_CACHE_MAX){
+    dropPhotoCache(photoCacheOrder[0]);
+  }
+  return url;
 }
 /* downscale a File/Blob by factor in each dimension; returns Blob */
 // Scale factor chosen from the image's own larger dimension. Bands are set so
@@ -1260,7 +1383,7 @@ function parseGpx(text,fname){
   const lon=parseFloat(wpt.getAttribute("lon"));
   if(isNaN(lat)||isNaN(lon)) return null;
   const eleEl=wpt.querySelector("ele");
-  const nameEl=wpt.querySelector("name");
+  const nameEl=wpt.querySelector("name")||wpt.querySelector("n"); // "n": accept files exported with the non-standard tag
   const descEl=wpt.querySelector("desc")||wpt.querySelector("cmt");
   const base=fname.replace(/\.gpx$/i,"");
   return {
@@ -1273,26 +1396,75 @@ function parseGpx(text,fname){
   };
 }
 function parseKmlBoundary(text){
+  // G2: tokenize <coordinates> with a tolerant regex — real-world KML puts
+  // whitespace after the commas inside a tuple, which a split-on-whitespace
+  // tokenizer broke apart. Tuples are lon,lat[,alt]; exponents accepted.
+  // Returns {error,polys}: error "parse" when the XML itself didn't parse,
+  // otherwise null with polys possibly empty (no usable coordinates found).
   const doc=new DOMParser().parseFromString(text,"application/xml");
+  if(doc.querySelector("parsererror"))return {error:"parse",polys:[]};
   const polys=[];
-  // handle <coordinates> under Polygon/LinearRing/LineString
+  const NUM="(-?\\d+(?:\\.\\d+)?(?:[eE][-+]?\\d+)?)";
+  const tupleRe=new RegExp(NUM+"\\s*,\\s*"+NUM+"(?:\\s*,\\s*"+NUM+")?","g");
   doc.querySelectorAll("coordinates").forEach(c=>{
-    const pts=c.textContent.trim().split(/\s+/).map(tok=>{
-      const [lon,lat]=tok.split(",").map(parseFloat);
-      return (isFinite(lat)&&isFinite(lon))?[lat,lon]:null;
-    }).filter(Boolean);
-    if(pts.length>=2) polys.push(pts);
+    const pts=[];
+    let m;tupleRe.lastIndex=0;
+    while((m=tupleRe.exec(c.textContent))){
+      const lon=parseFloat(m[1]),lat=parseFloat(m[2]);
+      if(isFinite(lat)&&isFinite(lon))pts.push([lat,lon]);
+    }
+    if(pts.length>=3) polys.push(pts);   // a ring needs at least 3 points
   });
-  return polys;
+  return {error:null,polys};
 }
 
 /* ---------------- map ---------------- */
 const TILE_URL="https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-const USGS_URL=TILE_URL; // alias retained for existing references
 function tileKey(z,x,y){return z+"/"+x+"/"+y;}
 
-// Custom tile layer that reads from IndexedDB first, network second (and caches).
+// Custom tile layer that reads from IndexedDB first, network second.
+// O2: network-served tiles inside the boundary box + margin are written through
+// to the tile cache; tiles outside that box are displayed live without storing.
 // Object URLs are tracked and revoked on tile unload to prevent tiles blanking out.
+
+// O2: geographic bound for write-through — the boundary bbox + margin (same
+// margin as cacheBox). Loaded once per session; false when no boundary is stored.
+let _wtBox=null,_wtBoxLoading=null;
+function getWriteThroughBox(){
+  if(_wtBox!==null)return Promise.resolve(_wtBox);
+  if(!_wtBoxLoading){
+    _wtBoxLoading=idbGet("meta","boundary").then(rec=>{
+      if(rec&&rec.polys&&rec.polys.length){
+        let minLat=90,maxLat=-90,minLon=180,maxLon=-180;
+        rec.polys.forEach(ring=>ring.forEach(([la,lo])=>{
+          if(la<minLat)minLat=la; if(la>maxLat)maxLat=la;
+          if(lo<minLon)minLon=lo; if(lo>maxLon)maxLon=lo;
+        }));
+        const mLat=(maxLat-minLat)*0.12, mLon=(maxLon-minLon)*0.12;
+        _wtBox={north:maxLat+mLat,south:minLat-mLat,west:minLon-mLon,east:maxLon+mLon};
+      }else{_wtBox=false;}
+      return _wtBox;
+    }).catch(()=>{_wtBox=false;return _wtBox;});
+  }
+  return _wtBoxLoading;
+}
+// O2: store a displayed network tile if it falls inside the write-through box.
+// Fire-and-forget: never delays or fails the on-screen tile.
+function writeThroughTile(img,coords,key){
+  if(img.naturalWidth<=1)return;
+  getWriteThroughBox().then(box=>{
+    if(!box)return;
+    const min=latLngToTile(box.north,box.west,coords.z);
+    const max=latLngToTile(box.south,box.east,coords.z);
+    if(coords.x<min.x||coords.x>max.x||coords.y<min.y||coords.y>max.y)return;
+    try{
+      const c=document.createElement("canvas");c.width=img.naturalWidth;c.height=img.naturalHeight;
+      c.getContext("2d").drawImage(img,0,0);
+      c.toBlob(b=>{if(b)idbPut("tiles",{key,blob:b}).catch(()=>{});},"image/jpeg",0.85);
+    }catch(e){/* canvas tainted (no CORS) — display only */}
+  });
+}
+
 function makeOfflineTileLayer(){
   const L_ = window.L;
   const Layer = L_.TileLayer.extend({
@@ -1307,11 +1479,13 @@ function makeOfflineTileLayer(){
           img.onerror=()=>{img.src=BLANK_TILE;done(null,img);};
           img.src=u;
         }else{
-          // network fallback; also store the tile so it's available offline later
-          const url=USGS_URL.replace("{z}",coords.z).replace("{y}",coords.y).replace("{x}",coords.x);
+          // network fallback; write-through inside the boundary box (O2), else display only
+          const url=TILE_URL.replace("{z}",coords.z).replace("{y}",coords.y).replace("{x}",coords.x);
           img.crossOrigin="anonymous";
-          img.onload=()=>{done(null,img);};
-          img.onerror=()=>{ img.src=BLANK_TILE; done(null,img); };
+          // O4: ~10 s timeout mirroring loadTileBlob, so a stalled request can't hold the tile forever
+          const t=setTimeout(()=>{img.onload=img.onerror=null;img.src=BLANK_TILE;done(null,img);},10000);
+          img.onload=()=>{clearTimeout(t);done(null,img);writeThroughTile(img,coords,key);};
+          img.onerror=()=>{clearTimeout(t);img.src=BLANK_TILE;done(null,img);};
           img.src=url;
         }
       }).catch(()=>{img.src=BLANK_TILE;done(null,img);});
@@ -1486,6 +1660,8 @@ function onPos(p){
   // "Update directions" button or a view switch, so rows don't reshuffle underfoot.
   if(!$("#view-list").classList.contains("hidden"))updateWaypointRows();
   nwOnFix();                               // accumulate into new-waypoint average if open
+  fqOnFix();                               // F1: feed the fix-quality ring buffer
+  diagOnFix();                             // F2: log device-vs-GPS heading pairs when the diagnostic is on
   clearTimeout(onPos._stale);
   onPos._stale=setTimeout(()=>updateGpsPill(false),8000);
 }
@@ -1510,7 +1686,7 @@ function requestRefresh(){
 
 /* ---------------- status view ---------------- */
 function renderStatus(){
-  if(!lastFix){["#stLat","#stLon","#stEle","#stErr","#stTime","#stLive","#stVel","#stHdg"].forEach(s=>$(s).textContent="—");return;}
+  if(!lastFix){["#stLat","#stLon","#stEle","#stErr","#stTime","#stLive","#stVel","#stHdg","#stScatter"].forEach(s=>$(s).textContent="—");return;}
   $("#stLat").textContent=fmtCoord(lastFix.lat,"N","S");
   $("#stLon").textContent=fmtCoord(lastFix.lon,"E","W");
   $("#stEle").textContent=lastFix.ele!=null?Math.round(metersToFeet(lastFix.ele))+" ft":"n/a";
@@ -1524,13 +1700,52 @@ function renderStatus(){
   }else{$("#stHdg").textContent="—";}
   $("#stTime").textContent=fmtTime(lastFix.time);
   const age=(Date.now()-lastFix.time.getTime())/1000;
-  $("#stLive").textContent=age<6?"live":Math.round(age)+"s ago";
+  $("#stLive").textContent=age<8?"live":Math.round(age)+"s ago"; // 8 s: matches onPos stale timer
+  const sc=fqScatter();
+  $("#stScatter").textContent=sc!=null?"±"+sc.toFixed(1)+" ft":"—";
+}
+
+/* ---------------- F1: live fix-quality estimator ----------------
+   Ring buffer of recent fixes taken while stationary (GPS speed at or below the
+   existing 0.4 m/s threshold used for course validity). The readout is the RMS
+   horizontal distance of the buffered fixes from their own mean — observed
+   scatter, i.e. precision, not accuracy (guide 6.5.1 language applies). The
+   buffer is cleared whenever the device is moving, so the figure is blank while
+   walking and rebuilds after ~half a minute of standing still. */
+const FQ_WINDOW_MS=30000;   // rolling window
+const FQ_MAX=30;            // hard cap on buffered fixes
+const FQ_MIN=5;             // minimum samples before showing a figure
+let fqBuf=[];               // [{lat,lon,t}]
+function fqOnFix(){
+  if(!lastFix)return;
+  const moving=(lastFix.speed!=null&&!isNaN(lastFix.speed)&&lastFix.speed>0.4);
+  if(moving){fqBuf.length=0;return;}
+  fqBuf.push({lat:lastFix.lat,lon:lastFix.lon,t:lastFix.time.getTime()});
+  const cutoff=Date.now()-FQ_WINDOW_MS;
+  while(fqBuf.length>FQ_MAX||(fqBuf.length&&fqBuf[0].t<cutoff))fqBuf.shift();
+}
+// RMS scatter of the buffered fixes about their mean, in feet; null if too few.
+function fqScatter(){
+  if(fqBuf.length<FQ_MIN)return null;
+  let sLa=0,sLo=0;
+  fqBuf.forEach(s=>{sLa+=s.lat;sLo+=s.lon;});
+  const mLat=sLa/fqBuf.length,mLon=sLo/fqBuf.length;
+  let sum=0;
+  fqBuf.forEach(s=>{const d=haversine([mLat,mLon],[s.lat,s.lon]);sum+=d*d;});
+  return metersToFeet(Math.sqrt(sum/fqBuf.length));
 }
 
 /* ---------------- compass view ---------------- */
 let devHeading=null,compassOn=false,devAccuracy=null;
 let compassOffset=parseFloat(localStorage.getItem("tg_compass_offset")||"0")||0;
 let screenSign=parseFloat(localStorage.getItem("tg_screen_sign")||"1")||1;
+// F2/F3 state: raw (pre-calibration) heading, diagnostic log, harmonic coefficients
+let devHeadingRaw=null;   // screen-adjusted sensor heading before offset/harmonic correction
+let diagOn=false;
+let diagLog=[];           // [{dev,gps,t}] pairs logged while walking with the diagnostic on
+try{const l=JSON.parse(localStorage.getItem("tg_compass_diag")||"[]");if(Array.isArray(l))diagLog=l;}catch(e){}
+let harmCoef=null;        // {coef:[A,B,C,D,E],n,rms} or null (constant offset applies)
+try{const c=JSON.parse(localStorage.getItem("tg_compass_harm")||"null");if(c&&Array.isArray(c.coef)&&c.coef.length===5)harmCoef=c;}catch(e){}
 function renderCompass(){
   // GPS travel heading
   if(lastFix&&lastFix.heading!=null&&!isNaN(lastFix.heading)){
@@ -1604,7 +1819,14 @@ function onOrient(e){
   }
   if(h!=null){
     // adjust for how the device is being held (portrait/landscape)
-    h=(h+screenAngle()*screenSign+compassOffset)%360;
+    h=(h+screenAngle()*screenSign)%360;
+    if(h<0)h+=360;
+    devHeadingRaw=h;   // F2/F3: sensor heading before any calibration correction
+    // F3: when a harmonic calibration is stored it replaces the constant offset
+    // (its A term subsumes it); otherwise the manual offset applies as before.
+    if(harmCoef)h=h-harmErrorWith(harmCoef.coef,h);
+    else h=h+compassOffset;
+    h=h%360;
     if(h<0)h+=360;
     devHeading=h;
     if(!$("#view-compass").classList.contains("hidden"))renderCompass();
@@ -1644,6 +1866,94 @@ async function enableCompass(){
     toast("Device compass enabled — if off, wave the iPad in a figure-8 to calibrate");
     $("#btnEnableCompass").classList.add("hidden");
   }catch(err){toast("Device compass unavailable");}
+}
+
+/* ---------------- F2/F3: compass diagnostic & harmonic calibration ----------------
+   F2: while walking with the diagnostic on, each GPS fix with a valid travel
+   course is paired with the raw (pre-calibration) magnetometer heading. The
+   pairs are tabulated as mean error per 30° heading bin, answering whether the
+   error is a stable function of heading (correctable) or unstable (hardware).
+   F3: error(θ)=A+B·sinθ+C·cosθ+D·sin2θ+E·cos2θ fitted to the log by linear
+   least squares; coefficients persist in localStorage and are applied in
+   onOrient in place of the constant offset. The log persists across launches so
+   a diagnostic walk can be reviewed and fitted later. */
+function wrap180(a){a=((a%360)+360)%360;return a>180?a-360:a;}
+function harmErrorWith(c,deg){
+  const th=deg*Math.PI/180;
+  return c[0]+c[1]*Math.sin(th)+c[2]*Math.cos(th)+c[3]*Math.sin(2*th)+c[4]*Math.cos(2*th);
+}
+const DIAG_MAX=600;   // cap on logged pairs
+function diagPersist(){try{localStorage.setItem("tg_compass_diag",JSON.stringify(diagLog));}catch(e){}}
+// Called from onPos: log a pair when the diagnostic is on, the GPS course is
+// valid (walking above the speed threshold), and the sensor is running.
+function diagOnFix(){
+  if(!diagOn)return;
+  if(!lastFix||lastFix.heading==null||isNaN(lastFix.heading))return;
+  if(devHeadingRaw==null)return;
+  diagLog.push({dev:Math.round(devHeadingRaw*10)/10,gps:Math.round(lastFix.heading*10)/10,t:Date.now()});
+  if(diagLog.length>DIAG_MAX)diagLog.splice(0,diagLog.length-DIAG_MAX);
+  if(diagLog.length%10===0)diagPersist();   // throttle writes; also persisted on stop
+  if(!$("#view-compass").classList.contains("hidden"))renderDiag();
+}
+// Rebuild the diagnostic status line, error-vs-heading table, and calibration status.
+function renderDiag(){
+  const st=$("#diagStatus");if(!st)return;
+  st.textContent=(diagOn?"Logging — walk a loop covering all directions. ":"")+diagLog.length+" pairs logged";
+  const box=$("#diagTable");
+  if(diagLog.length===0){box.innerHTML="";}
+  else{
+    const bins=[];for(let i=0;i<12;i++)bins.push({sum:0,n:0});
+    diagLog.forEach(p=>{const b=Math.round(p.dev/30)%12;const e=wrap180(p.dev-p.gps);bins[b].sum+=e;bins[b].n++;});
+    let html='<div class="kv" style="font-weight:600"><span class="k">Heading</span><span class="v">Mean error (device − GPS)</span></div>';
+    bins.forEach((b,i)=>{
+      if(!b.n)return;
+      const m=b.sum/b.n;
+      html+='<div class="kv"><span class="k">'+(i*30)+'°</span><span class="v">'+(m>=0?"+":"")+m.toFixed(1)+"° × "+b.n+"</span></div>";
+    });
+    box.innerHTML=html;
+  }
+  const hs=$("#harmStatus");
+  if(hs)hs.textContent=harmCoef
+    ?("Harmonic calibration active — fit from "+harmCoef.n+" pairs, residual ±"+harmCoef.rms.toFixed(1)+"° RMS. The constant offset above is bypassed while it is active.")
+    :"No harmonic calibration stored — the constant offset above applies.";
+}
+// Solve a 5×5 linear system by Gaussian elimination with partial pivoting.
+function solve5(M,V){
+  const A=M.map((r,i)=>r.concat(V[i]));
+  for(let c=0;c<5;c++){
+    let p=c;
+    for(let r=c+1;r<5;r++)if(Math.abs(A[r][c])>Math.abs(A[p][c]))p=r;
+    if(Math.abs(A[p][c])<1e-9)return null;   // singular: heading coverage too narrow
+    const t=A[c];A[c]=A[p];A[p]=t;
+    for(let r=0;r<5;r++){
+      if(r===c)continue;
+      const f=A[r][c]/A[c][c];
+      for(let k=c;k<6;k++)A[r][k]-=f*A[c][k];
+    }
+  }
+  return A.map((r,i)=>r[5]/r[i]);
+}
+// F3: fit the harmonic model to the diagnostic log and store the coefficients.
+function harmFit(){
+  if(diagLog.length<30){toast("Need at least 30 logged pairs — walk with the diagnostic on first");return;}
+  const covered=new Set();diagLog.forEach(p=>covered.add(Math.round(p.dev/30)%12));
+  if(covered.size<4){toast("Samples cover too narrow an arc — walk more headings first");return;}
+  const M=[];for(let i=0;i<5;i++)M.push([0,0,0,0,0]);
+  const V=[0,0,0,0,0];
+  diagLog.forEach(p=>{
+    const th=p.dev*Math.PI/180;
+    const r=[1,Math.sin(th),Math.cos(th),Math.sin(2*th),Math.cos(2*th)];
+    const e=wrap180(p.dev-p.gps);
+    for(let i=0;i<5;i++){V[i]+=r[i]*e;for(let j=0;j<5;j++)M[i][j]+=r[i]*r[j];}
+  });
+  const coef=solve5(M,V);
+  if(!coef){toast("Fit failed — samples too clustered in heading");return;}
+  let sum=0;
+  diagLog.forEach(p=>{const r=wrap180(p.dev-p.gps)-harmErrorWith(coef,p.dev);sum+=r*r;});
+  harmCoef={coef,n:diagLog.length,rms:Math.sqrt(sum/diagLog.length)};
+  try{localStorage.setItem("tg_compass_harm",JSON.stringify(harmCoef));}catch(e){}
+  toast("Harmonic calibration fitted and applied");
+  renderDiag();renderCompass();updateWaypointArrows();
 }
 
 /* ---------------- waypoint list ---------------- */
@@ -1703,7 +2013,7 @@ function updateListNotice(shown,total){
   const el=document.getElementById("listNotice");
   if(!el)return;
   if(shown<total){
-    el.innerHTML="Showing "+shown+" of "+total+" &nbsp;<button class='btn ghost' id='btnShowMore' style='display:inline-flex;width:auto;min-height:1.7rem;padding:0 .6rem;font-size:.74rem'>Show more</button>";
+    el.innerHTML="Showing "+shown+" of "+total+" &nbsp;<button class='btn ghost' id='btnShowMore' style='display:inline-flex;width:auto;min-height:var(--tap);padding:0 .9rem;font-size:.74rem'>Show more</button>";
     el.classList.remove("hidden");
     const b=document.getElementById("btnShowMore");
     if(b)b.onclick=()=>{listLimit+=LIST_PAGE;renderList();};
@@ -1735,7 +2045,10 @@ async function openWaypoint(id){
   // waypoint and would silently discard whatever had been typed.
   if(window._modal)return;
   const w=waypoints.find(x=>x.id===id);if(!w)return;
-  const url=w.hasPhoto?await getPhotoURL(id):null;
+  // X4: a failed photo read must not block opening the waypoint — proceed with
+  // url=null and the modal renders its existing no-photo state.
+  let url=null;
+  if(w.hasPhoto){try{url=await getPhotoURL(id);}catch(e){url=null;}}
   const body=`
     <div class="grip"></div>
     <div class="field-label">Name</div>
@@ -1805,11 +2118,15 @@ async function openWaypoint(id){
         if(newPhoto){
           let field=newPhoto;
           try{ field=await downscale(newPhoto); }catch(e){ field=newPhoto; }
-          await idbPut("photos",{id:w.id,field,full:newPhoto});   // replaces existing record
           w.hasPhoto=true;
-          if(photoCache[w.id]){URL.revokeObjectURL(photoCache[w.id]);delete photoCache[w.id];}
+          await idbTxWaypointsPhotos((wps,phs)=>{
+            phs.put({id:w.id,field,full:newPhoto});   // replaces existing record
+            wps.put(w);
+          });
+          if(photoCache[w.id])dropPhotoCache(w.id);   // T1: keep the LRU order list consistent
+        }else{
+          await idbPut("waypoints",w);
         }
-        await idbPut("waypoints",w);
         refreshPins();renderList();
         closeModal();
         toast("Waypoint updated");
@@ -1963,12 +2280,15 @@ function nwOnFix(){
 async function saveNewWaypoint(fix,name,comment,photoFile){
   const id=uid();
   const wp={id,name,lat:fix.lat,lon:fix.lon,ele:(fix.ele==null?null:fix.ele),comment,folderId:RECENT,created:Date.now(),hasPhoto:!!photoFile};
+  let field=null;
   if(photoFile){
-    let field=photoFile;
+    field=photoFile;
     try{ field=await downscale(photoFile); }catch(e){ field=photoFile; }   // fall back to original on any scaling error
-    await idbPut("photos",{id,field,full:photoFile});
   }
-  await idbPut("waypoints",wp);
+  await idbTxWaypointsPhotos((wps,phs)=>{
+    if(photoFile)phs.put({id,field,full:photoFile});   // field-created: keep full-res for Export
+    wps.put(wp);
+  });
   waypoints.push(wp);
   refreshPins();
   populateFolderSelects();
@@ -1994,16 +2314,27 @@ async function exportWaypoint(id){
   const files=[];
   files.push(new File([buildGpx(w)],base+".gpx",{type:"application/gpx+xml"}));
   const pr=await idbGet("photos",id);
-  if(pr&&pr.full){files.push(new File([pr.full],base.replace(/\./g,"")+".jpg",{type:"image/jpeg"}));}
+  const photo=pr&&(pr.full||pr.field);   // S1: imported waypoints carry field-res only
+  const fieldOnly=!!(pr&&!pr.full&&pr.field);
+  if(photo){files.push(new File([photo],base.replace(/\./g,"")+".jpg",{type:"image/jpeg"}));}
+  const shareText=w.name+(fieldOnly?" (field-resolution photo — master is on the iMac)":"");
   // Try Web Share with files (Share Sheet), fall back to downloads
   if(navigator.canShare&&navigator.canShare({files})){
-    try{await navigator.share({files,title:w.name,text:w.name});return;}catch(e){if(e.name==="AbortError")return;}
+    try{await navigator.share({files,title:w.name,text:shareText});return;}catch(e){if(e.name==="AbortError")return;}
   }
   // fallback: trigger downloads + mailto
-  files.forEach(f=>{const a=document.createElement("a");a.href=URL.createObjectURL(f);a.download=f.name;a.click();});
-  const mail="mailto:Ronald.gilliland@gmail.com?subject="+encodeURIComponent(w.name);
-  toast("Files downloaded — attach to email");
-  setTimeout(()=>{location.href=mail;},600);
+  // X2: iPadOS often honors only the first programmatic download when several
+  // fire in the same tick — space them out, and open the mailto only after the
+  // downloads have settled so it can't swallow the second one.
+  const GAP=800;
+  files.forEach((f,i)=>{
+    setTimeout(()=>{
+      const a=document.createElement("a");a.href=URL.createObjectURL(f);a.download=f.name;a.click();
+    },i*GAP);
+  });
+  const mail="mailto:"+EXPORT_EMAIL+"?subject="+encodeURIComponent(w.name);
+  toast("Files downloaded — attach to email"+(fieldOnly?" (field-resolution photo)":""));
+  setTimeout(()=>{location.href=mail;},files.length*GAP+600);
 }
 
 /* ---------------- import ---------------- */
@@ -2020,15 +2351,19 @@ async function stageFolder(fileList){
 }
 async function stageGpx(fileList){
   // additive: append to existing staged set, de-dup by root
-  let added=0,dup=0;
+  let added=0,dup=0;const bad=[];   // D7: parse failures are counted and named, not silently dropped
   for(const f of fileList){
     const text=await f.text();
     const parsed=parseGpx(text,f.name);
-    if(!parsed)continue;
+    if(!parsed){bad.push(f.name);continue;}
     if(pendGpx.some(g=>g.root===parsed.root)){dup++;continue;}
     pendGpx.push(parsed);added++;
   }
-  $("#gpxStatus").textContent=pendGpx.length+" GPX file(s) staged"+(dup?" ("+dup+" duplicate skipped)":"")+".";
+  let msg=pendGpx.length+" GPX file(s) staged"+(dup?" ("+dup+" duplicate skipped)":"")+".";
+  if(bad.length){
+    msg+=" Could not parse "+bad.length+": "+bad.slice(0,5).join(", ")+(bad.length>5?" and "+(bad.length-5)+" more":"")+".";
+  }
+  $("#gpxStatus").textContent=msg;
 }
 function stageJpg(fileList){
   // additive: append to existing staged photos, keyed by root
@@ -2050,38 +2385,75 @@ async function runImport(){
   if(pendGpx.length===0){toast("Select GPX files first");return;}
   const prog=$("#importProg");prog.classList.remove("hidden");
   const bar=prog.firstElementChild;
-  let matched=0,noPhoto=0;
+  let matched=0,noPhoto=0,already=0,failed=0,quotaHit=false;   // S4
   await ensureRecent();
-  for(let i=0;i<pendGpx.length;i++){
-    const g=pendGpx[i];
-    const id=uid();
-    const wp={id,name:g.name,lat:g.lat,lon:g.lon,ele:g.ele,comment:g.comment,folderId:RECENT,created:Date.now()+i,hasPhoto:false};
-    const jpg=pendJpg[g.root];
-    if(jpg){
-      const field=await downscale(jpg);
-      await idbPut("photos",{id,field,full:jpg});
-      wp.hasPhoto=true;matched++;
-    }else{noPhoto++;}
-    await idbPut("waypoints",wp);
-    waypoints.push(wp);
-    bar.style.width=Math.round((i+1)/pendGpx.length*100)+"%";
+  await acquireWakeLock();   // D6
+  // D1: skip items already present (same archival root, or same name case-folded),
+  // so interrupted or repeated imports are safely resumable.
+  const existRoots=new Set(waypoints.map(w=>normRoot(w.name)));
+  const existNames=new Set(waypoints.map(w=>w.name.toLowerCase()));
+  try{
+    for(let i=0;i<pendGpx.length;i++){
+      const g=pendGpx[i];
+      try{   // S4: one bad item (or a full disk) must not escape as an unhandled rejection
+        if(existRoots.has(g.root)||existNames.has(g.name.toLowerCase())){
+          already++;
+        }else{
+          const id=uid();
+          const wp={id,name:g.name,lat:g.lat,lon:g.lon,ele:g.ele,comment:g.comment,folderId:RECENT,created:Date.now()+i,hasPhoto:false};
+          const jpg=pendJpg[g.root];
+          let field=null;
+          if(jpg){
+            field=await downscale(jpg);   // BEFORE the transaction — Safari: no await inside it
+            wp.hasPhoto=true;
+          }
+          await idbTxWaypointsPhotos((wps,phs)=>{
+            if(field)phs.put({id,field});   // S1: imports store field-res only; masters stay on the iMac
+            wps.put(wp);
+          });
+          if(field)matched++;else noPhoto++;
+          waypoints.push(wp);
+          existRoots.add(g.root);existNames.add(wp.name.toLowerCase());
+        }
+      }catch(err){
+        failed++;
+        if(err&&err.name==="QuotaExceededError"){quotaHit=true;break;}   // S4: report plainly, stop the run
+      }
+      bar.style.width=Math.round((i+1)/pendGpx.length*100)+"%";
+    }
+    const imported=matched+noPhoto;
+    if(quotaHit){
+      $("#importResult").textContent="Device storage full — "+imported+" waypoint(s) stored, "
+        +(pendGpx.length-imported-already)+" not. Free space and run Import again; items already stored are skipped.";
+      toast("Storage full — import stopped");
+      // keep the staged files so the run can be resumed
+    }else{
+      $("#importResult").textContent=`Imported ${imported} waypoint(s): ${matched} with photo, ${noPhoto} without.`
+        +(already?` ${already} already present (skipped).`:"")+(failed?` ${failed} failed (re-run Import to retry).`:"");
+      toast("Import complete");
+      pendGpx=[];pendJpg={};
+      $("#gpxStatus").textContent="";$("#jpgStatus").textContent="";
+    }
+  }finally{   // S4: UI is restored whatever happens above
+    releaseWakeLock();   // D6
+    refreshPins();
+    populateFolderSelects();
+    setTimeout(()=>{prog.classList.add("hidden");bar.style.width="0";},1200);
   }
-  refreshPins();
-  $("#importResult").textContent=`Imported ${pendGpx.length} waypoint(s): ${matched} with photo, ${noPhoto} without.`;
-  toast("Import complete");
-  pendGpx=[];pendJpg={};
-  $("#gpxStatus").textContent="";$("#jpgStatus").textContent="";
-  setTimeout(()=>{prog.classList.add("hidden");bar.style.width="0";},1200);
-  populateFolderSelects();
 }
 
 /* ---------------- tile caching ---------------- */
 let cacheCancel=false;
 
-// Probe which zoom levels USGS actually serves for the property centre.
+// Probe which zoom levels the imagery server (Esri) actually serves for the property centre.
 // Loads a test tile via Image() (avoids CORS issues that fetch may hit) and
 // reports OK / failed per zoom, so we cache only levels that truly exist.
 async function probeZooms(){
+  if(!navigator.onLine){   // O1: offline probing would misreport every zoom as unavailable
+    $("#probeStatus").textContent="No network connection — connect, then test zoom levels again.";
+    toast("No network — zoom test needs a connection");
+    return null;
+  }
   const rec=await idbGet("meta","boundary");
   let lat=40.603463,lon=-78.040440;
   if(rec&&rec.polys&&rec.polys[0]&&rec.polys[0].length){
@@ -2092,8 +2464,13 @@ async function probeZooms(){
   $("#probeStatus").textContent="Testing zoom levels…";
   const results=[];
   for(let z=15;z<=21;z++){
+    if(!navigator.onLine){   // O1: connection dropped mid-test — abort, persist nothing
+      window._availableZooms=undefined;
+      $("#probeStatus").textContent="Network lost during the test — test again when connected.";
+      return null;
+    }
     const {x,y}=latLngToTile(lat,lon,z);
-    const url=USGS_URL.replace("{z}",z).replace("{y}",y).replace("{x}",x);
+    const url=TILE_URL.replace("{z}",z).replace("{y}",y).replace("{x}",x);
     const ok=await new Promise(resolve=>{
       const img=new Image();
       const t=setTimeout(()=>{resolve(false);},9000);
@@ -2106,6 +2483,14 @@ async function probeZooms(){
   }
   const good=results.filter(r=>r[1]).map(r=>r[0]);
   const bad=results.filter(r=>!r[1]).map(r=>r[0]);
+  if(good.length===0){                 // O3: don't persist an all-failure probe —
+    window._availableZooms=undefined;  // leave unset so the next cache attempt re-probes
+    await renderZoomChooser(good);
+    $("#probeStatus").textContent=navigator.onLine
+      ?"No zoom levels returned imagery — check your connection and test again."
+      :"No network — test again when connected.";   // O1
+    return null;
+  }
   window._availableZooms=good;
   await renderZoomChooser(good);
   toast("Zoom test complete");
@@ -2184,7 +2569,8 @@ function fetchWithTimeout(url,ms){
 }
 // Load a tile as an image and convert to a Blob via canvas. This works even
 // when the server lacks CORS headers for fetch(), as long as the image itself
-// loads. Returns: Blob (ok) | null (no tile / 404) | undefined (failed).
+// loads. Returns: Blob (ok) | null (no tile / 404) | undefined (failed/offline).
+// O1: an error while offline is retryable, not "tile absent".
 function loadTileBlob(url){
   return new Promise(resolve=>{
     const img=new Image();
@@ -2200,12 +2586,13 @@ function loadTileBlob(url){
         c.toBlob(b=>resolve(b||undefined),"image/jpeg",0.85);
       }catch(e){resolve(undefined);}   // canvas tainted (no CORS) — fall through
     };
-    img.onerror=()=>{cleanup();resolve(null);};
+    img.onerror=()=>{cleanup();resolve(navigator.onLine?null:undefined);};   // O1
     img.src=url+"?t="+Date.now();
   });
 }
 async function fetchTileWithRetry(url,tries=3){
   for(let i=0;i<tries;i++){
+    if(!navigator.onLine)return undefined;   // O1: no network — retryable later, skip the retry delays
     const blob=await loadTileBlob(url);
     if(blob)return blob;                     // success
     if(blob===null)return null;              // genuinely absent
@@ -2246,34 +2633,57 @@ async function cacheTiles(){
   cacheCancel=false;
   $("#btnCacheTiles").classList.add("hidden");
   $("#btnCancelCache").classList.remove("hidden");
-  let done=0,saved=0,already=0,failed=0,missing=0;
-  for(const j of jobs){
-    if(cacheCancel){$("#cacheStatus").textContent="Stopped — "+saved+" saved so far. You can resume by caching again.";break;}
-    const key=tileKey(j.z,j.x,j.y);
-    const exists=await idbGet("tiles",key);
-    if(exists){already++;}
-    else{
-      const url=USGS_URL.replace("{z}",j.z).replace("{y}",j.y).replace("{x}",j.x);
-      const blob=await fetchTileWithRetry(url);
-      if(blob){await idbPut("tiles",{key,blob});saved++;}
-      else if(blob===null){missing++;}
-      else{failed++;}
-      await new Promise(r=>setTimeout(r,35));  // pace requests to avoid throttling
+  let done=0,saved=0,already=0,failed=0,missing=0,quotaHit=false,netStop=false,consecFail=0;   // S4 / O1
+  await acquireWakeLock();   // D6
+  try{
+    for(const j of jobs){
+      if(cacheCancel){$("#cacheStatus").textContent="Stopped — "+saved+" saved so far. You can resume by caching again.";break;}
+      try{   // S4: a QuotaExceededError mid-loop must not escape and freeze the UI
+        const key=tileKey(j.z,j.x,j.y);
+        const exists=await idbGet("tiles",key);
+        if(exists){already++;}
+        else{
+          const url=TILE_URL.replace("{z}",j.z).replace("{y}",j.y).replace("{x}",j.x);
+          const blob=await fetchTileWithRetry(url);
+          if(blob){await idbPut("tiles",{key,blob});saved++;consecFail=0;}
+          else if(blob===null){missing++;consecFail=0;}
+          else{
+            failed++;consecFail++;
+            if(consecFail>=5||!navigator.onLine){   // O1: repeated errors or offline — stop rather than mislabel tiles
+              netStop=true;
+              $("#cacheStatus").textContent="No network — stopped. "+saved+" tile(s) stored this run. Cache again when connected to resume.";
+              toast("No network — caching stopped");
+              break;
+            }
+          }
+          await new Promise(r=>setTimeout(r,35));  // pace requests to avoid throttling
+        }
+      }catch(err){
+        failed++;
+        if(err&&err.name==="QuotaExceededError"){
+          quotaHit=true;
+          $("#cacheStatus").textContent="Device storage full — "+saved+" tile(s) stored this run, the rest not. Free space, then cache again to finish.";
+          toast("Storage full — caching stopped");
+          break;
+        }
+      }
+      done++;
+      if(done%4===0||done===jobs.length){
+        bar.style.width=Math.round(done/jobs.length*100)+"%";
+        $("#cacheStatus").textContent="Processed "+done+" / "+jobs.length+"  ("+saved+" new)";
+      }
     }
-    done++;
-    if(done%4===0||done===jobs.length){
-      bar.style.width=Math.round(done/jobs.length*100)+"%";
-      $("#cacheStatus").textContent="Processed "+done+" / "+jobs.length+"  ("+saved+" new)";
+    if(!cacheCancel&&!quotaHit&&!netStop){
+      $("#cacheStatus").textContent="Done — "+saved+" newly stored, "+already+" already cached"+
+        (failed?", "+failed+" failed (retry to finish)":"")+(missing?", "+missing+" not available at this zoom":"")+".";
+      toast(saved+" new tiles cached");
     }
+  }finally{   // S4: buttons and progress bar are restored whatever happens above
+    releaseWakeLock();   // D6
+    $("#btnCacheTiles").classList.remove("hidden");
+    $("#btnCancelCache").classList.add("hidden");
+    setTimeout(()=>{prog.classList.add("hidden");bar.style.width="0";},2000);
   }
-  if(!cacheCancel){
-    $("#cacheStatus").textContent="Done — "+saved+" newly stored, "+already+" already cached"+
-      (failed?", "+failed+" failed (retry to finish)":"")+(missing?", "+missing+" not available at this zoom":"")+".";
-    toast(saved+" new tiles cached");
-  }
-  $("#btnCacheTiles").classList.remove("hidden");
-  $("#btnCancelCache").classList.add("hidden");
-  setTimeout(()=>{prog.classList.add("hidden");bar.style.width="0";},2000);
 }
 function latLngToTile(lat,lon,z){
   const n=2**z;
@@ -2301,16 +2711,59 @@ async function clearTiles(){
 /* ---------------- boundary load ---------------- */
 async function loadBoundaryFile(file){
   const text=await file.text();
-  const polys=parseKmlBoundary(text);
-  if(polys.length===0){toast("No boundary found in file");return;}
+  const parsed=parseKmlBoundary(text);
+  if(parsed.error==="parse"){toast("That file could not be read as KML");return;}   // G2
+  const polys=parsed.polys;
+  if(polys.length===0){toast("No boundary coordinates found in file");return;}
   await idbPut("meta",{key:"boundary",polys});
+  _wtBox=null;_wtBoxLoading=null;   // O2: new boundary → recompute the write-through box
   await loadBoundaryToMap();
   $("#boundaryStatus").textContent="Boundary loaded ("+polys.reduce((a,p)=>a+p.length,0)+" points).";
   toast("Boundary loaded");
 }
 
+/* ---------------- storage maintenance ---------------- */
+/* S2: surface usage/quota on the Setup page. */
+function fmtBytes(b){
+  if(b==null||isNaN(b))return "—";
+  const mb=b/1048576;
+  return mb>=1024?(mb/1024).toFixed(1)+" GB":mb.toFixed(1)+" MB";
+}
+async function renderStorageInfo(){
+  const u=$("#storUsed"),q=$("#storQuota");
+  if(!(navigator.storage&&navigator.storage.estimate)){u.textContent="not available";q.textContent="—";return;}
+  try{
+    const est=await navigator.storage.estimate();
+    u.textContent=fmtBytes(est.usage);
+    q.textContent=fmtBytes(est.quota);
+  }catch(e){u.textContent="not available";q.textContent="—";}
+}
+/* D5: reconcile the photos store with waypoint records. getAllKeys (not getAll)
+   so no photo blobs are materialized. Removes photos with no matching waypoint
+   and clears hasPhoto where the photo record is absent; reports counts. */
+async function orphanSweep(){
+  const out=$("#orphanResult");
+  out.textContent="Checking…";
+  try{
+    const photoKeys=await idbAllKeys("photos");
+    const keySet=new Set(photoKeys);
+    const wpIds=new Set(waypoints.map(w=>w.id));
+    let removedPhotos=0,clearedFlags=0;
+    for(const k of photoKeys){
+      if(!wpIds.has(k)){await idbDel("photos",k);removedPhotos++;}
+    }
+    for(const w of waypoints){
+      if(w.hasPhoto&&!keySet.has(w.id)){w.hasPhoto=false;await idbPut("waypoints",w);clearedFlags++;}
+    }
+    out.textContent=(removedPhotos===0&&clearedFlags===0)
+      ? "No orphans found — photos and waypoints agree."
+      : removedPhotos+" orphaned photo(s) removed, "+clearedFlags+" waypoint(s) marked photo-less.";
+    renderStorageInfo();
+  }catch(e){out.textContent="Sweep failed: "+((e&&e.message)||"unknown error");}
+}
+
 /* ---------------- backup / restore ---------------- */
-/* Backup and restore were removed in V 1.19.
+/* Backup and restore were removed in V 1.21.
    Backup could not build its single JSON string once the full archival set was
    loaded — the operation died silently rather than producing a file, and the
    limit is the browser's, not something the code can work around at this scale.
@@ -2330,7 +2783,7 @@ function renderFolderList(){
     const count=waypoints.filter(w=>w.folderId===f.id).length;
     const el=document.createElement("div");el.className="kv";
     el.innerHTML=`<span class="k">${escapeHtml(f.name)}<span class="pin-count">${count}</span></span>`+
-      (f.permanent?'<span class="v subtle">permanent</span>':'<button class="btn ghost" style="width:auto;padding:.3rem .7rem;min-height:auto" data-del="'+f.id+'">Delete</button>');
+      (f.permanent?'<span class="v subtle">permanent</span>':'<button class="btn ghost" style="width:auto;padding:.3rem .9rem" data-del="'+f.id+'">Delete</button>');
     box.appendChild(el);
   });
   box.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>deleteFolder(b.dataset.del));
@@ -2338,44 +2791,81 @@ function renderFolderList(){
 async function deleteFolder(id){
   const count=waypoints.filter(w=>w.folderId===id).length;
   if(count>0){if(!confirm(count+" waypoint(s) will move to Recently Added. Delete folder?"))return;
-    for(const w of waypoints.filter(w=>w.folderId===id)){w.folderId=RECENT;await idbPut("waypoints",w);}}
-  await idbDel("folders",id);await loadState();populateFolderSelects();renderFolderList();refreshPins();
+    let n=0;   // D4: show progress on large runs; re-running is idempotent
+    for(const w of waypoints.filter(w=>w.folderId===id)){w.folderId=RECENT;await idbPut("waypoints",w);n++;if(count>50&&n%25===0)toast("Moving… "+n+" / "+count);}}
+  await idbDel("folders",id);
+  if(currentMapFolder===id)currentMapFolder="__all__";   // X3: deleted folder was the map filter — show all, not nothing
+  await loadState();populateFolderSelects();renderFolderList();refreshPins();
   toast("Folder deleted");
 }
 function newFolderPrompt(){
-  const name=prompt("Folder name:");if(!name||!name.trim())return;
-  const f={id:uid(),name:name.trim(),permanent:false};
-  idbPut("folders",f).then(async()=>{await loadState();populateFolderSelects();renderFolderList();toast("Folder created");});
+  // X5c: the app's own modal replaces prompt() — consistent look, reliable on
+  // iPadOS Home-Screen apps, and the keyboard/viewport handling comes free.
+  const body=`
+    <div class="grip"></div>
+    <h3>New Folder</h3>
+    <div class="field-label">Folder name</div>
+    <input type="text" id="nfName">
+    <div class="row" style="margin-top:.9rem">
+      <button class="btn ghost" data-act="cancel">Cancel</button>
+      <button class="btn" data-act="create">Create</button>
+    </div>`;
+  showModal(body,(root)=>{
+    const input=root.querySelector("#nfName");
+    onTap(root.querySelector('[data-act="cancel"]'),closeModal);
+    onTap(root.querySelector('[data-act="create"]'),()=>{
+      const name=input.value.trim();
+      if(!name){toast("Enter a folder name");return;}
+      const f={id:uid(),name,permanent:false};
+      idbPut("folders",f).then(async()=>{await loadState();populateFolderSelects();renderFolderList();closeModal();toast("Folder created");});
+    });
+  });
 }
 function moveSelected(){
   if(selected.size===0){toast("Nothing selected");return;}
-  const opts=folders.map(f=>f.id+"::"+f.name);
-  const choice=prompt("Move "+selected.size+" waypoint(s) to which folder?\n\n"+folders.map((f,i)=>(i+1)+". "+f.name).join("\n")+"\n\nEnter number:");
-  const idx=parseInt(choice)-1;
-  if(isNaN(idx)||idx<0||idx>=folders.length)return;
-  const target=folders[idx].id;
-  (async()=>{
-    for(const id of selected){const w=waypoints.find(x=>x.id===id);if(w){w.folderId=target;await idbPut("waypoints",w);}}
-    selected.clear();editMode=false;
-    $("#editActions").classList.add("hidden");$("#editControls").classList.remove("hidden");
-    const keepSel=$("#listFolderSelect").value;
-    populateFolderSelects();
-    if([...$("#listFolderSelect").options].some(o=>o.value===keepSel))$("#listFolderSelect").value=keepSel;
-    renderList();refreshPins();renderFolderList();
-    toast("Moved to "+folderName(target));
-  })();
+  // X5c: destination chosen from a select in the app's modal — replaces the
+  // prompt() that asked for a typed number against a printed list.
+  const opts=folders.map(f=>'<option value="'+f.id+'">'+escapeHtml(f.name)+'</option>').join("");
+  const body=`
+    <div class="grip"></div>
+    <h3>Move ${selected.size} waypoint(s)</h3>
+    <div class="field-label">Destination folder</div>
+    <select id="mvFolder">${opts}</select>
+    <div class="row" style="margin-top:.9rem">
+      <button class="btn ghost" data-act="cancel">Cancel</button>
+      <button class="btn" data-act="move">Move</button>
+    </div>`;
+  showModal(body,(root)=>{
+    onTap(root.querySelector('[data-act="cancel"]'),closeModal);
+    onTap(root.querySelector('[data-act="move"]'),()=>{
+      const target=root.querySelector("#mvFolder").value;
+      closeModal();
+      (async()=>{
+        let n=0;const total=selected.size;   // D4: show progress on large runs; re-running is idempotent
+        for(const id of selected){const w=waypoints.find(x=>x.id===id);if(w){w.folderId=target;await idbPut("waypoints",w);}n++;if(total>50&&n%25===0)toast("Moving… "+n+" / "+total);}
+        selected.clear();editMode=false;
+        $("#editActions").classList.add("hidden");$("#editControls").classList.remove("hidden");
+        const keepSel=$("#listFolderSelect").value;
+        populateFolderSelects();
+        if([...$("#listFolderSelect").options].some(o=>o.value===keepSel))$("#listFolderSelect").value=keepSel;
+        renderList();refreshPins();renderFolderList();
+        toast("Moved to "+folderName(target));
+      })();
+    });
+  });
 }
 
 function deleteSelected(){
   if(selected.size===0){toast("Nothing selected");return;}
   if(!confirm("Delete "+selected.size+" waypoint(s)? This also removes their photos and cannot be undone."))return;
   (async()=>{
+    let done=0;const total=selected.size;   // D4: show progress on large runs; re-running is idempotent
     for(const id of selected){
-      await idbDel("waypoints",id);
-      await idbDel("photos",id);
+      await idbTxWaypointsPhotos((wps,phs)=>{wps.delete(id);phs.delete(id);});
       const i=waypoints.findIndex(x=>x.id===id);
       if(i>=0)waypoints.splice(i,1);
-      if(photoCache[id]){URL.revokeObjectURL(photoCache[id]);delete photoCache[id];}
+      if(photoCache[id])dropPhotoCache(id);   // T1: keep the LRU order list consistent
+      done++;if(total>50&&done%25===0)toast("Deleting… "+done+" / "+total);
     }
     const n=selected.size;
     selected.clear();editMode=false;
@@ -2526,8 +3016,8 @@ function switchView(name){
   if(name==="map"&&map)setTimeout(()=>map.invalidateSize(),80);
   if(name==="list")renderList();
   if(name==="status")renderStatus();
-  if(name==="compass"){autoEnableCompass();renderCompass();}
-  if(name==="setup"){renderFolderList();}
+  if(name==="compass"){autoEnableCompass();renderCompass();renderDiag();}
+  if(name==="setup"){renderFolderList();renderStorageInfo();}
 }
 
 /* ---------------- wire up ---------------- */
@@ -2535,7 +3025,19 @@ async function boot(){
   // Surface uncaught errors as a toast rather than letting them silently break the UI.
   window.addEventListener("error",ev=>{ try{toast("Error: "+(ev.message||"unknown"));}catch(e){} });
   window.addEventListener("unhandledrejection",ev=>{ try{toast("Error: "+((ev.reason&&ev.reason.message)||"operation failed"));}catch(e){} });
-  await openDB();
+  // S5: wire the nav before the DB await so the shell stays alive if the open fails.
+  $$("#nav button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+  try{
+    await openDBWithRetry();
+  }catch(e){
+    showFatalError("Storage could not be opened",
+      "Trail GPS keeps everything in this device's browser storage, which did not open. "+
+      "This happens in Private Browsing, or occasionally on a cold start. "+
+      "Leave Private Browsing if it is on, then reload.");
+    return;
+  }
+  // S2: ask Safari to protect this origin's storage from eviction (harmless if denied).
+  if(navigator.storage&&navigator.storage.persist){try{navigator.storage.persist().catch(()=>{});}catch(e){}}
   await ensureRecent();
   await loadState();
   initMap();
@@ -2544,8 +3046,6 @@ async function boot(){
   // pre-fill property coordinates for convenience
   $("#gotoLat").value="40.603463";
   $("#gotoLon").value="-78.040440";
-
-  $$("#nav button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
 
   $("#mapFolderSelect").onchange=e=>{currentMapFolder=e.target.value;refreshPins();};
   $("#listFolderSelect").onchange=()=>{listLimit=LIST_PAGE;renderList();};
@@ -2584,6 +3084,29 @@ async function boot(){
     localStorage.setItem("tg_screen_sign",String(screenSign));
     toast("Landscape sign "+(screenSign>0?"normal":"flipped"));
     renderCompass();
+  };
+  // F2/F3: diagnostic and harmonic-calibration controls
+  $("#btnDiagToggle").onclick=()=>{
+    diagOn=!diagOn;
+    $("#btnDiagToggle").textContent=diagOn?"Stop diagnostic":"Start diagnostic";
+    if(diagOn&&!compassOn)enableCompass();   // the button tap satisfies iOS's permission gate
+    if(!diagOn)diagPersist();
+    toast(diagOn?"Diagnostic on — walk a loop; pairs log only while moving":"Diagnostic stopped — "+diagLog.length+" pairs logged");
+    renderDiag();
+  };
+  $("#btnHarmFit").onclick=harmFit;
+  $("#btnHarmClear").onclick=()=>{
+    if(!harmCoef){toast("No harmonic calibration stored");return;}
+    harmCoef=null;
+    try{localStorage.removeItem("tg_compass_harm");}catch(e){}
+    toast("Harmonic calibration cleared — constant offset applies again");
+    renderDiag();renderCompass();updateWaypointArrows();
+  };
+  $("#btnDiagClear").onclick=()=>{
+    diagLog=[];
+    try{localStorage.removeItem("tg_compass_diag");}catch(e){}
+    toast("Diagnostic log cleared");
+    renderDiag();
   };
 
   $("#btnEditMode").onclick=()=>{editMode=true;selected.clear();$("#editControls").classList.add("hidden");$("#editActions").classList.remove("hidden");$("#selCount").textContent="0";renderList();};
@@ -2632,6 +3155,7 @@ async function boot(){
 
 
   $("#btnNewFolder").onclick=newFolderPrompt;
+  $("#btnOrphanSweep").onclick=orphanSweep;
 
   // periodic status age refresh
   setInterval(()=>{if(!$("#view-status").classList.contains("hidden"))renderStatus();},1000);
