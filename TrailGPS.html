@@ -1011,7 +1011,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.28</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.29</div>
     </div>
   </section>
 
@@ -1123,7 +1123,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div class="subtle" id="orphanResult"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.28 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.29 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -1747,15 +1747,18 @@ try{const l=JSON.parse(localStorage.getItem("tg_compass_diag")||"[]");if(Array.i
 let harmCoef=null;        // {coef:[A,B,C,D,E],n,rms} or null (constant offset applies)
 try{const c=JSON.parse(localStorage.getItem("tg_compass_harm")||"null");if(c&&Array.isArray(c.coef)&&c.coef.length===5)harmCoef=c;}catch(e){}
 function renderCompass(){
-  // Both dials are compass-style: the needle rotates by −heading, i.e. it
-  // points toward north and counter-rotates as you turn, like a physical
-  // compass (the behavior validated against a native compass app). With the
-  // iPad pointed along the direction of travel the two needles should sit
-  // parallel — divergence between them is the device sensor's error. The
-  // numeric readouts below each dial remain the headings themselves.
+  // The two dials intentionally use different conventions. The Device dial is
+  // a physical compass: its needle rotates by −heading, pointing toward north
+  // and counter-rotating as the iPad turns (validated against a native compass
+  // app). The GPS Travel dial is map-style: on its fixed north-up card the
+  // needle rotates by +heading, indicating the cardinal direction of travel —
+  // walking east points it at E. A north-pointing GPS needle agreed at N/S but
+  // mirrored E/W against this reading, so +heading is the correct convention
+  // here. To compare device against GPS, use the two numeric headings; the
+  // needles themselves are not parallel when the sensors agree.
   // GPS travel heading
   if(lastFix&&lastFix.heading!=null&&!isNaN(lastFix.heading)){
-    $("#gpsNeedle").style.transform="translateX(-50%) rotate("+(-lastFix.heading)+"deg)";
+    $("#gpsNeedle").style.transform="translateX(-50%) rotate("+lastFix.heading+"deg)";
     $("#gpsHeading").textContent=Math.round(lastFix.heading)+"°";
   }else{$("#gpsHeading").textContent="—";}
   if(devHeading!=null){
