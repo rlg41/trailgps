@@ -1013,7 +1013,7 @@ textarea{resize:vertical;min-height:3rem;}
       </div>
       <button class="btn" id="btnRefresh"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Refresh position</button>
       <div class="note sky">Elevation from GPS is less precise than horizontal position; read it as an estimate. The error figure is the device's best indication of fix quality and will vary as reception changes.</div>
-      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.30</div>
+      <div style="text-align:right;color:var(--muted);font-size:.78rem;margin-top:1.5rem;font-weight:600">V 1.31</div>
     </div>
   </section>
 
@@ -1132,7 +1132,7 @@ textarea{resize:vertical;min-height:3rem;}
         <div class="subtle" id="orphanResult"></div>
       </div>
 
-      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.30 · runs entirely on this device</div>
+      <div class="subtle" style="text-align:center;margin-top:1.5rem">Trail GPS · V 1.31 · runs entirely on this device</div>
     </div>
   </section>
 </div>
@@ -2397,22 +2397,37 @@ async function saveNewWaypoint(fix,name,comment,photoFile){
 }
 
 /* ---------------- new waypoint at typed coordinates (W4) ---------------- */
-// Accepts the archival ddd.mm.mmm form — degrees, whole minutes, then the
-// fractional minutes as typed after the second dot (40.36.208 = 40° 36.208′) —
-// and, tolerantly, plain decimal degrees (40.608712). The sign carries as
-// typed; west longitudes are negative. Returns decimal degrees, or null.
+// Accepts the forms coordinates are actually written in, each with an
+// optional leading sign or trailing hemisphere letter (S and W negative):
+//   40.36.208      archival ddd.mm.mmm — any number of digits after the
+//                  second dot (40.36.2081 is fine)
+//   40 36.2081     degrees and decimal minutes — the app's own display form,
+//                  with or without the ° and ′ marks (40° 36.2081′ N pastes in)
+//   40.608712      plain decimal degrees
+// Returns decimal degrees, or null when the text can't be read.
 function parseCoordEntry(str){
-  const s=(str||"").trim();
-  let m=s.match(/^([+-]?)(\d{1,3})\.(\d{1,2})\.(\d{1,3})$/);
+  let s=(str||"").trim().replace(/[°′'"]/g," ").replace(/\s+/g," ").trim();
+  let sign=1;
+  let m=s.match(/^(.*?)\s*([NSEW])$/i);          // trailing hemisphere letter
+  if(m){s=m[1].trim();const h=m[2].toUpperCase();if(h==="S"||h==="W")sign=-1;}
+  if(s.charAt(0)==="+")s=s.slice(1).trim();
+  else if(s.charAt(0)==="-"){sign*=-1;s=s.slice(1).trim();}
+  m=s.match(/^(\d{1,3})\.(\d{1,2})\.(\d+)$/);   // archival ddd.mm.mmm…
   if(m){
-    const sign=m[1]==="-"?-1:1;
-    const deg=parseInt(m[2],10);
-    const min=parseInt(m[3],10)+parseFloat("0."+m[4]);
+    const deg=parseInt(m[1],10);
+    const min=parseInt(m[2],10)+parseFloat("0."+m[3]);
     if(min>=60)return null;
     return sign*(deg+min/60);
   }
-  m=s.match(/^[+-]?\d{1,3}(\.\d+)?$/);
-  if(m)return parseFloat(s);
+  m=s.match(/^(\d{1,3}) (\d{1,2}(?:\.\d+)?)$/);  // ddd mm.mmmm (display form)
+  if(m){
+    const deg=parseInt(m[1],10);
+    const min=parseFloat(m[2]);
+    if(min>=60)return null;
+    return sign*(deg+min/60);
+  }
+  m=s.match(/^\d{1,3}(\.\d+)?$/);                // decimal degrees
+  if(m)return sign*parseFloat(s);
   return null;
 }
 // W4: desk-work entry path — creates a waypoint at typed coordinates with no
@@ -2422,7 +2437,7 @@ function newAtCoordsFlow(){
   const body=`
     <div class="grip"></div>
     <h3>New waypoint at coordinates</h3>
-    <div class="subtle" style="margin-bottom:.6rem">Enter the archival form ddd.mm.mmm (degrees, minutes, fractional minutes — e.g. 40.36.208) or decimal degrees. West longitudes are negative.</div>
+    <div class="subtle" style="margin-bottom:.6rem">Enter the archival form ddd.mm.mmm (e.g. 40.36.208 — any number of digits after the second dot), degrees and decimal minutes (40 36.2081), or decimal degrees (40.608712). West longitudes are negative, or end with W.</div>
     <div class="field-label">Latitude</div>
     <input type="text" id="ncLat" autocomplete="off" placeholder="40.36.208">
     <div class="field-label" style="margin-top:.7rem">Longitude</div>
@@ -2452,11 +2467,25 @@ function newAtCoordsFlow(){
       warn.classList.toggle("hidden",!v||!existingNames.has(v));
     };
     onTap(root.querySelector("#ncCancel"),closeModal);
+    // A validation failure must be unmissable: in a scrolled modal the inline
+    // warning can sit off-screen, which made a rejected Save look like a dead
+    // button. Toast (always visible) and bring the warning into view as well.
+    const flagWarn=(el,msg)=>{
+      el.classList.remove("hidden");
+      try{el.scrollIntoView({block:"center"});}catch(e){}
+      toast(msg);
+    };
     onTap(root.querySelector("#ncSave"),async()=>{
       const lat=parseCoordEntry(latI.value),lon=parseCoordEntry(lonI.value);
-      if(lat==null||lon==null||Math.abs(lat)>90||Math.abs(lon)>180){coordWarn.classList.remove("hidden");return;}
+      if(lat==null||lon==null||Math.abs(lat)>90||Math.abs(lon)>180){
+        flagWarn(coordWarn,"Coordinates could not be read — see the formats above the fields");
+        return;
+      }
       const name=nameI.value.trim()||("ab."+fracMinutes3(lat)+"."+fracMinutes3(lon));
-      if(waypoints.some(w=>w.name.toLowerCase()===name.toLowerCase())){warn.classList.remove("hidden");return;}
+      if(waypoints.some(w=>w.name.toLowerCase()===name.toLowerCase())){
+        flagWarn(warn,"That name is already in use");
+        return;
+      }
       const saveBtn=root.querySelector("#ncSave");
       const saveHtml=saveBtn.innerHTML;
       saveBtn.disabled=true;saveBtn.textContent="Saving…";
